@@ -14,12 +14,12 @@ import zipfile
 from io import BytesIO
 
 
-# ======== 工具函数（优化：添加缓存减少重复计算）=========
+# ======== 工具函数 =========
 @st.cache_data
 def load_audio(file):
     return librosa.load(file, sr=None)
 
-@st.cache_data  # 缓存频谱图生成结果
+@st.cache_data
 def generate_spectrogram_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
@@ -32,7 +32,7 @@ def generate_spectrogram_image(y, sr):
     plt.close(fig)
     return Image.open(buf)
 
-@st.cache_data  # 新增：缓存波形图生成结果
+@st.cache_data
 def generate_waveform_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
     librosa.display.waveshow(y, sr=sr)
@@ -76,7 +76,7 @@ st.set_page_config(layout="wide")
 
 st.title("🐸 青蛙音频标注工具")
 
-# ======== 侧边栏（优化：减少重复渲染区域）=========
+# ======== 侧边栏 =========
 with st.sidebar:
     uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True)
     output_dir = st.text_input("保存目录", "E:/Frog audio classification/uploaded_audios")
@@ -98,7 +98,7 @@ with st.sidebar:
                 mime="text/csv"
             )
     
-    # 音频片段下载（优化：仅在有标注时计算）
+    # 音频片段下载
     annotated_paths = []
     if os.path.exists(csv_path):
         df_tmp = pd.read_csv(csv_path)
@@ -121,7 +121,7 @@ with st.sidebar:
             mime="application/zip"
         )
     
-    # 标注状态显示（优化：仅在有文件时显示）
+    # 标注状态显示
     if uploaded_files:
         with st.expander("✅ 已标注音频", expanded=True):
             for f in uploaded_files:
@@ -131,7 +131,7 @@ with st.sidebar:
             st.write([f.name for f in uploaded_files if f.name not in st.session_state.processed_files])
 
 
-# ======== 主处理区域（核心优化：减少标签选择时的渲染范围）=========
+# ======== 主处理区域 =========
 SEGMENT_DURATION = 5.0  # 每段时长（秒）
 
 if uploaded_files:
@@ -151,7 +151,7 @@ if uploaded_files:
 
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
 
-        # 切换片段时清空标签（优化：仅在真正切换时执行）
+        # 切换片段时清空标签
         if st.session_state.last_audio_file != audio_file.name or st.session_state.last_seg_idx != seg_idx:
             st.session_state.selected_labels.clear()
             st.session_state.last_audio_file = audio_file.name
@@ -164,45 +164,74 @@ if uploaded_files:
         end_sample = int(end_sec * sr)
         segment_y = y[start_sample:end_sample]
 
-        # 播放音频段（优化：仅音频片段变化时重新生成）
-        st.subheader("🎧 播放当前音频片段")
-        audio_bytes = io.BytesIO()
-        sf.write(audio_bytes, segment_y, sr, format='WAV')
-        st.audio(audio_bytes, format="audio/wav", start_time=0)
+        # 核心布局调整：左侧显示音频信息，右侧显示标签复选框
+        col_main, col_labels = st.columns([3, 1])  # 主区域:标签区域 = 3:1
 
-        # 波形图 + 频谱图（优化：使用缓存结果，减少重复绘制）
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("#### 📈 波形图")
-            wave_img = generate_waveform_image(segment_y, sr)
-            st.image(wave_img, caption="Waveform", use_container_width=True)
+        with col_main:
+            # 播放音频段
+            st.subheader("🎧 播放当前音频片段")
+            audio_bytes = io.BytesIO()
+            sf.write(audio_bytes, segment_y, sr, format='WAV')
+            st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-        with col2:
-            st.markdown("#### 🎞️ 频谱图")
-            spec_img = generate_spectrogram_image(segment_y, sr)
-            st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
+            # 波形图 + 频谱图
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("#### 📈 波形图")
+                wave_img = generate_waveform_image(segment_y, sr)
+                st.image(wave_img, caption="Waveform", use_container_width=True)
 
-        # 标签选择区域（核心优化：用multiselect替代checkbox，减少交互次数）
-        st.markdown("### 🐸 请选择该段音频中出现的物种标签（可多选）")
-        species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
-        # 使用multiselect实现高效多选，仅在选择变化时触发渲染
-        selected_labels = st.multiselect(
-            "物种标签",
-            species_list,
-            default=list(st.session_state.selected_labels),
-            key=f"multiselect_{audio_file.name}_{seg_idx}"
-        )
-        st.session_state.selected_labels = set(selected_labels)
+            with col2:
+                st.markdown("#### 🎞️ 频谱图")
+                spec_img = generate_spectrogram_image(segment_y, sr)
+                st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
 
-        # 保存按钮（优化：使用form减少提交次数）
-        col_save, col_skip = st.columns(2)
-        with col_save:
-            save_clicked = st.button("保存本段标注", key=f"save_btn_{audio_file.name}_{seg_idx}")
-        with col_skip:
-            skip_clicked = st.button("跳过本段", key=f"skip_btn_{audio_file.name}_{seg_idx}")
+            # 操作按钮
+            col_save, col_skip = st.columns(2)
+            with col_save:
+                save_clicked = st.button("保存本段标注", key=f"save_btn_{audio_file.name}_{seg_idx}")
+            with col_skip:
+                skip_clicked = st.button("跳过本段", key=f"skip_btn_{audio_file.name}_{seg_idx}")
 
+        with col_labels:  # 右侧单列显示复选框
+            st.markdown("### 🐸 物种标签（可多选）")
+            species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
+            current_key_prefix = f"{audio_file.name}_{seg_idx}"
+
+            # 复选框状态管理
+            for label in species_list:
+                key = f"label_checkbox_{label}_{current_key_prefix}"
+                # 初始化或重置状态
+                if key not in st.session_state:
+                    st.session_state[key] = False
+                # 当切换片段时强制重置复选框
+                if st.session_state.last_audio_file != audio_file.name or st.session_state.last_seg_idx != seg_idx:
+                    st.session_state[key] = False
+
+                # 渲染复选框，绑定状态
+                checked = st.checkbox(
+                    label,
+                    key=key,
+                    value=st.session_state[key]
+                )
+                # 更新状态（仅在变化时）
+                if checked != st.session_state[key]:
+                    st.session_state[key] = checked
+                    # 同步到selected_labels集合
+                    if checked:
+                        st.session_state.selected_labels.add(label)
+                    else:
+                        st.session_state.selected_labels.discard(label)
+
+            # 显示当前选中的标签（辅助确认）
+            if st.session_state.selected_labels:
+                st.success(f"已选标签: {', '.join(st.session_state.selected_labels)}")
+            else:
+                st.info("请选择至少一个标签")
+
+        # 保存逻辑
         if save_clicked:
-            if not selected_labels:
+            if not st.session_state.selected_labels:
                 st.warning("❗请先选择至少一个物种标签！")
             else:
                 # 保存分片音频
@@ -216,7 +245,7 @@ if uploaded_files:
                     "segment_index": segment_filename,
                     "start_time": round(start_sec, 3),
                     "end_time": round(end_sec, 3),
-                    "labels": ",".join(selected_labels)
+                    "labels": ",".join(st.session_state.selected_labels)
                 }
 
                 st.session_state.annotations.append(entry)
@@ -231,7 +260,7 @@ if uploaded_files:
                     st.session_state.current_index += 1
 
                 st.success("标注已保存！")
-                st.experimental_rerun()  # 手动触发刷新，减少延迟
+                st.experimental_rerun()
 
         if skip_clicked:
             if seg_idx + 1 < total_segments:
@@ -239,7 +268,7 @@ if uploaded_files:
             else:
                 st.session_state.processed_files.add(audio_file.name)
                 st.session_state.current_index += 1
-            st.rerun()
+            st.experimental_rerun()
 
     # 检查是否所有音频都已标注完成
     all_done = True
