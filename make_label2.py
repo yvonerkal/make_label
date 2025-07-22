@@ -27,11 +27,14 @@ def generate_spectrogram_image(y, sr):
     plt.close(fig)
     return Image.open(buf)
 
+
 def is_fully_annotated(file):
     info = st.session_state.segment_info.get(file.name)
     if info is None:
         return False
     return info["current_seg"] >= info["total_seg"]
+
+
 # ======== Session 状态初始化 =========
 if "annotations" not in st.session_state:
     st.session_state.annotations = []
@@ -49,11 +52,13 @@ if "reset_checkboxes" not in st.session_state:
 if "segment_info" not in st.session_state:
     st.session_state.segment_info = {}
 
+
 def toggle_label(label):
     if label in st.session_state.selected_labels:
         st.session_state.selected_labels.remove(label)
     else:
         st.session_state.selected_labels.add(label)
+
 
 st.set_page_config(layout="wide")
 
@@ -105,7 +110,6 @@ if annotated_paths:
         mime="application/zip"
     )
 
-
 # 已标注 / 未标注 显示
 if uploaded_files:
     with st.sidebar.expander("✅ 已标注音频", expanded=True):
@@ -122,13 +126,11 @@ if uploaded_files:
 SEGMENT_DURATION = 5.0  # 每段时长（秒）
 
 if uploaded_files:
-    
 
     unprocessed = [f for f in uploaded_files if not is_fully_annotated(f)]
 
     if "segment_info" not in st.session_state:
         st.session_state.segment_info = {}
-
 
     if st.session_state.current_index < len(unprocessed):
         audio_file = unprocessed[st.session_state.current_index]
@@ -142,7 +144,7 @@ if uploaded_files:
         seg_info = st.session_state.segment_info[audio_file.name]
         seg_idx = seg_info["current_seg"]
 
-        st.header(f"标注音频: {audio_file.name} - 第 {seg_idx+1}/{total_segments} 段")
+        st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
 
         # 检查是否切换片段，清空选中标签
         last_audio = st.session_state.get("last_audio_file", None)
@@ -193,7 +195,7 @@ if uploaded_files:
                 key = f"label_checkbox_{label}_{current_key_prefix}"
                 st.session_state[key] = False  # 在checkbox实例化前重置
             st.session_state.reset_checkboxes = False  # 重置标志
-        current_key_prefix = f"{audio_file.name}_seg{seg_idx}"
+
         # 创建checkbox
         for i, label in enumerate(species_list):
             key = f"label_checkbox_{label}_{current_key_prefix}"
@@ -219,52 +221,50 @@ if uploaded_files:
 
         # 保存按钮逻辑
         # ======== 保存按钮逻辑（优化版）========
-save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
-
-if save_clicked:
-    selected_labels = [
-        label for label in species_list
-        if st.session_state.get(f"label_checkbox_{label}_{current_key_prefix}", False)
-    ]
-
-    if not selected_labels:
-        st.warning("❗请先选择至少一个物种标签！")
-    else:
-        # 保存分片音频
-        segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
-        segment_path = os.path.join(output_dir, segment_filename)
-        sf.write(segment_path, segment_y, sr)
-
-        # 保存到CSV
-        entry = {
-            "filename": audio_file.name,
-            "segment_index": segment_filename,
-            "start_time": round(start_sec, 3),
-            "end_time": round(end_sec, 3),
-            "labels": ",".join(selected_labels)
-        }
-
-        st.session_state.annotations.append(entry)
-        df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
-        df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
-
-        # 清除checkbox（刷新逻辑交由下次加载处理）
-        for label in species_list:
-            cb_key = f"label_checkbox_{label}_{current_key_prefix}"
-            if cb_key in st.session_state:
-                del st.session_state[cb_key]
-
-        # 切换分片或下一个文件
-        if seg_idx + 1 < total_segments:
-            st.session_state.segment_info[audio_file.name]["current_seg"] += 1
-        else:
-            st.session_state.processed_files.add(audio_file.name)
-            st.session_state.current_index += 1
-
-        # 稳定刷新页面
-        st.rerun()
-
-
+        save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
+        
+        if save_clicked:
+            selected_labels = [
+                label for label in species_list
+                if st.session_state.get(f"label_checkbox_{label}_{current_key_prefix}", False)
+            ]
+        
+            if not selected_labels:
+                st.warning("❗请先选择至少一个物种标签！")
+            else:
+                # 保存分片音频
+                segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
+                segment_path = os.path.join(output_dir, segment_filename)
+                sf.write(segment_path, segment_y, sr)
+        
+                # 保存到CSV
+                entry = {
+                    "filename": audio_file.name,
+                    "segment_index": segment_filename,
+                    "start_time": round(start_sec, 3),
+                    "end_time": round(end_sec, 3),
+                    "labels": ",".join(selected_labels)
+                }
+        
+                st.session_state.annotations.append(entry)
+                df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
+                df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
+        
+                # 清除checkbox（刷新逻辑交由下次加载处理）
+                for label in species_list:
+                    cb_key = f"label_checkbox_{label}_{current_key_prefix}"
+                    if cb_key in st.session_state:
+                        del st.session_state[cb_key]
+        
+                # 切换分片或下一个文件
+                if seg_idx + 1 < total_segments:
+                    st.session_state.segment_info[audio_file.name]["current_seg"] += 1
+                else:
+                    st.session_state.processed_files.add(audio_file.name)
+                    st.session_state.current_index += 1
+        
+                # 稳定刷新页面
+                st.rerun()
 
     # 检查是否所有音频的所有片段都已标注完成
 
