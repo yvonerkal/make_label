@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
 import librosa
 import librosa.display
 import numpy as np
@@ -69,6 +68,8 @@ if "last_seg_idx" not in st.session_state:
     st.session_state.last_seg_idx = -1
 if "auto_play" not in st.session_state:
     st.session_state.auto_play = True  # 自动播放开关
+if "audio_muted" not in st.session_state:
+    st.session_state.audio_muted = True  # 音频默认静音
 
 
 st.set_page_config(layout="wide")
@@ -128,6 +129,11 @@ with st.sidebar:
 
     # 自动播放开关
     st.session_state.auto_play = st.checkbox("自动播放音频", value=st.session_state.auto_play)
+    
+    # 音频静音/取消静音
+    if st.button("🔇 取消静音" if st.session_state.audio_muted else "🔊 静音"):
+        st.session_state.audio_muted = not st.session_state.audio_muted
+
 
     # 标注状态显示
     if uploaded_files:
@@ -186,150 +192,5 @@ if uploaded_files:
             # 生成随机ID，确保每次加载新音频时ID不同
             audio_id = f"audio_{uuid.uuid4()}"
             
-            # 使用HTML音频元素，支持自动播放属性
+            # 使用HTML音频元素，支持自动播放和静音属性
             if st.session_state.auto_play:
-                # 自动播放逻辑
-                st.markdown(f"""
-                <audio id="{audio_id}" autoplay controls>
-                    <source src="data:audio/wav;base64,{audio_bytes.getvalue().hex()}" type="audio/wav">
-                    您的浏览器不支持音频播放。
-                </audio>
-                <script>
-                    // 尝试自动播放
-                    var audio = document.getElementById('{audio_id}');
-                    audio.play().catch(e => {{
-                        console.log('自动播放被阻止:', e);
-                        // 可以在这里添加用户交互触发播放的逻辑
-                    }});
-                </script>
-                """, unsafe_allow_html=True)
-                
-                # 显示自动播放状态
-                autoplay_status = "✅ 已启用自动播放"
-                if st.session_state.get("autoplay_blocked", False):
-                    autoplay_status = "⚠️ 自动播放被浏览器阻止，需要您先进行交互（如点击页面）"
-                st.info(autoplay_status)
-            else:
-                # 非自动播放模式
-                st.audio(audio_bytes, format="audio/wav", start_time=0)
-
-
-            # 波形图 + 频谱图
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("#### 📈 波形图")
-                wave_img = generate_waveform_image(segment_y, sr)
-                st.image(wave_img, caption="Waveform", use_container_width=True)
-
-
-            with col2:
-                st.markdown("#### 🎞️ 频谱图")
-                spec_img = generate_spectrogram_image(segment_y, sr)
-                st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
-
-
-        with col_labels:  # 右侧区域：标签选择 + 操作按钮
-            st.markdown("### 🐸 物种标签（可多选）")
-            species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
-            current_key_prefix = f"{audio_file.name}_{seg_idx}"
-
-
-            # 切换片段时重置复选框状态
-            if (st.session_state.last_audio_file != audio_file.name
-                    or st.session_state.last_seg_idx != seg_idx):
-                for label in species_list:
-                    key = f"label_checkbox_{label}_{current_key_prefix}"
-                    st.session_state[key] = False
-                st.session_state.last_audio_file = audio_file.name
-                st.session_state.last_seg_idx = seg_idx
-
-
-            # 渲染复选框并收集选中的标签
-            selected_labels = []
-            for label in species_list:
-                key = f"label_checkbox_{label}_{current_key_prefix}"
-                if key not in st.session_state:
-                    st.session_state[key] = False
-                checked = st.checkbox(label, key=key, value=st.session_state[key])
-                if checked != st.session_state[key]:
-                    st.session_state[key] = checked
-                if st.session_state[key]:
-                    selected_labels.append(label)
-
-
-            # 显示已选标签
-            if selected_labels:
-                st.success(f"已选标签: {', '.join(selected_labels)}")
-            else:
-                st.info("请选择至少一个标签")
-
-
-            # 操作按钮（移至右侧标签下方）
-            st.markdown("### 🛠️ 操作")
-            col_save, col_skip = st.columns(2)
-            with col_save:
-                save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
-            with col_skip:
-                skip_clicked = st.button("跳过本段", key=f"skip_btn_{current_key_prefix}")
-
-
-        # 保存逻辑
-        if save_clicked:
-            if not selected_labels:
-                st.warning("❗请先选择至少一个物种标签！")
-            else:
-                # 保存分片音频
-                segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
-                segment_path = os.path.join(output_dir, segment_filename)
-                sf.write(segment_path, segment_y, sr)
-
-
-                # 保存到CSV
-                entry = {
-                    "filename": audio_file.name,
-                    "segment_index": segment_filename,
-                    "start_time": round(start_sec, 3),
-                    "end_time": round(end_sec, 3),
-                    "labels": ",".join(selected_labels)
-                }
-
-
-                st.session_state.annotations.append(entry)
-                df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
-                df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
-
-
-                # 切换分片或下一个文件
-                if seg_idx + 1 < total_segments:
-                    st.session_state.segment_info[audio_file.name]["current_seg"] += 1
-                else:
-                    st.session_state.processed_files.add(audio_file.name)
-                    st.session_state.current_index += 1
-
-
-                st.success("标注已保存！")
-                st.rerun()
-
-
-        if skip_clicked:
-            if seg_idx + 1 < total_segments:
-                st.session_state.segment_info[audio_file.name]["current_seg"] += 1
-            else:
-                st.session_state.processed_files.add(audio_file.name)
-                st.session_state.current_index += 1
-            st.rerun()
-
-
-    # 检查是否所有音频都已标注完成
-    all_done = True
-    for f in uploaded_files:
-        info = st.session_state.segment_info.get(f.name)
-        if info is None or info["current_seg"] < info["total_seg"]:
-            all_done = False
-            break
-    if all_done:
-        st.success("🎉 所有上传的音频都已标注完成！")
-
-
-else:
-    st.info("请先在左侧上传至少一个音频文件")
