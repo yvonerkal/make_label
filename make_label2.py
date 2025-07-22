@@ -51,9 +51,12 @@ def is_fully_annotated(file):
     return info["current_seg"] >= info["total_seg"]
 
 
-# 清理文件名，移除非法字符
+# 增强的文件名清理函数，确保生成有效的key
 def clean_filename(filename):
-    return "".join(e for e in filename if e.isalnum() or e in ['_', '-'])
+    if not filename:
+        return "unknown_file"
+    cleaned = "".join(e for e in filename if e.isalnum() or e in ['_', '-'])
+    return cleaned if cleaned else "unknown_file"
 
 
 # ======== Session 状态初始化 =========
