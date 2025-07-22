@@ -137,7 +137,7 @@ if uploaded_files:
         with col2:
             st.markdown("#### 🎞️ 频谱图")
             img = generate_spectrogram_image(segment_y, sr)
-            st.image(img, caption="Spectrogram (dB)", use_column_width=True)
+            st.image(img, caption="Spectrogram (dB)", use_container_width=True)
 
         # 标签选择区域
         st.markdown("### 🐸 请选择该段音频中出现的物种标签（可多选）")
