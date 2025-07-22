@@ -211,7 +211,7 @@ if uploaded_files:
                     st.session_state.processed_files.add(audio_file.name)
                     st.session_state.current_index += 1
 
-                st.experimental_rerun()
+                st.session_state.need_rerun = True
 
     # 检查是否所有音频的所有片段都已标注完成
 
