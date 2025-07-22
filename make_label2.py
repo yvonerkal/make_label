@@ -10,6 +10,8 @@ import os
 import io
 import uuid
 from PIL import Image
+import zipfile
+from io import BytesIO
 
 
 # ======== 工具函数 =========
@@ -65,6 +67,43 @@ if os.path.exists(csv_path):
     df_old = pd.read_csv(csv_path, encoding="utf-8")
 else:
     df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
+# ======== 下载标注结果和音频片段（添加到左侧边栏）=========
+st.sidebar.markdown("### 📥 下载标注结果")
+
+# 下载标注CSV文件
+if os.path.exists(csv_path):
+    with open(csv_path, "rb") as f:
+        st.sidebar.download_button(
+            label="📄 下载标注CSV文件",
+            data=f,
+            file_name="annotations.csv",
+            mime="text/csv"
+        )
+
+# 下载所有标注后的音频片段（压缩成ZIP）
+annotated_paths = []
+if os.path.exists(csv_path):
+    df_tmp = pd.read_csv(csv_path)
+    for fname in df_tmp["segment_index"]:
+        full_path = os.path.join(output_dir, fname)
+        if os.path.exists(full_path):
+            annotated_paths.append(full_path)
+
+if annotated_paths:
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+        for path in annotated_paths:
+            arcname = os.path.basename(path)
+            zip_file.write(path, arcname=arcname)
+    zip_buffer.seek(0)
+
+    st.sidebar.download_button(
+        label="🎵 下载标注音频 (ZIP)",
+        data=zip_buffer,
+        file_name="annotated_audio_segments.zip",
+        mime="application/zip"
+    )
+
 
 # 已标注 / 未标注 显示
 if uploaded_files:
