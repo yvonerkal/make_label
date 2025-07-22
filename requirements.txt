@@ -1,0 +1,8 @@
+streamlit
+streamlit-drawable-canvas
+pandas
+numpy
+librosa
+matplotlib
+pydub
+scipy
