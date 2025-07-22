@@ -122,6 +122,8 @@ if uploaded_files:
 SEGMENT_DURATION = 5.0  # 每段时长（秒）
 
 if uploaded_files:
+    current_key_prefix = f"{audio_file.name}_seg{seg_idx}"
+
     unprocessed = [f for f in uploaded_files if not is_fully_annotated(f)]
 
     if "segment_info" not in st.session_state:
