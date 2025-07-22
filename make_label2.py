@@ -136,56 +136,42 @@ if uploaded_files:
     if st.session_state.current_index < len(unprocessed):
         audio_file = unprocessed[st.session_state.current_index]
         
-        # 获取当前片段信息（不移除，用于判断是否需要加载）
-        seg_info = st.session_state.segment_info.get(audio_file.name, {"current_seg": 0})
+        # 加载音频数据（移至顶部，确保所有地方都能访问）
+        y, sr = load_audio(audio_file)
+        total_duration = librosa.get_duration(y=y, sr=sr)
+        total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
+
+        if audio_file.name not in st.session_state.segment_info:
+            st.session_state.segment_info[audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
+
+        seg_info = st.session_state.segment_info[audio_file.name]
         seg_idx = seg_info["current_seg"]
         
-        # 检查是否需要切换音频片段（使用当前片段信息）
+        # 检查是否需要切换音频片段
         if (st.session_state.last_audio_file != audio_file.name 
             or st.session_state.last_seg_idx != seg_idx):
             st.session_state.is_loading = True
         
-        # 只有在不是加载状态时才显示标题
+        # 只有在不是加载状态时才显示完整标题
         if not st.session_state.is_loading:
             st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
         else:
             st.header("正在加载音频片段...")
-            # 显示加载状态后，立即更新会话状态
+            # 更新会话状态
             st.session_state.last_audio_file = audio_file.name
             st.session_state.last_seg_idx = seg_idx
-            
-            # 加载音频和计算片段
-            y, sr = load_audio(audio_file)
-            total_duration = librosa.get_duration(y=y, sr=sr)
-            total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
-
-            if audio_file.name not in st.session_state.segment_info:
-                st.session_state.segment_info[audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
-
             # 计算当前段落的时间范围
             start_sec = seg_idx * SEGMENT_DURATION
             end_sec = min((seg_idx + 1) * SEGMENT_DURATION, total_duration)
             start_sample = int(start_sec * sr)
             end_sample = int(end_sec * sr)
             segment_y = y[start_sample:end_sample]
-            
-            # 加载完成后重置状态
+            # 重置加载状态并重新渲染
             st.session_state.is_loading = False
-            st.rerun()  # 重新运行以显示完整内容
+            st.rerun()
 
         # 只有在非加载状态下才继续渲染内容
         if not st.session_state.is_loading:
-            # 加载音频和计算片段（非首次加载时执行）
-            y, sr = load_audio(audio_file)
-            total_duration = librosa.get_duration(y=y, sr=sr)
-            total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
-
-            if audio_file.name not in st.session_state.segment_info:
-                st.session_state.segment_info[audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
-
-            seg_info = st.session_state.segment_info[audio_file.name]
-            seg_idx = seg_info["current_seg"]
-
             # 计算当前段落的时间范围
             start_sec = seg_idx * SEGMENT_DURATION
             end_sec = min((seg_idx + 1) * SEGMENT_DURATION, total_duration)
