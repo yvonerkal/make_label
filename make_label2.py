@@ -286,7 +286,7 @@ if uploaded_files:
                         st.session_state.current_index += 1
 
                     st.success("标注已保存！")
-                    st.experimental_rerun()
+                    st.rerun()
 
             if skip_clicked:
                 if seg_idx + 1 < total_segments:
@@ -294,7 +294,7 @@ if uploaded_files:
                 else:
                     st.session_state.processed_files.add(audio_file.name)
                     st.session_state.current_index += 1
-                st.experimental_rerun()
+                st.rerun()
 
     # 检查是否所有音频都已标注完成
     all_done = True
