@@ -51,6 +51,11 @@ def is_fully_annotated(file):
     return info["current_seg"] >= info["total_seg"]
 
 
+# 清理文件名，移除非法字符
+def clean_filename(filename):
+    return "".join(e for e in filename if e.isalnum() or e in ['_', '-'])
+
+
 # ======== Session 状态初始化 =========
 if "annotations" not in st.session_state:
     st.session_state.annotations = []
@@ -136,7 +141,7 @@ if uploaded_files:
     if st.session_state.current_index < len(unprocessed):
         audio_file = unprocessed[st.session_state.current_index]
         
-        # 加载音频数据（移至顶部，确保所有地方都能访问）
+        # 加载音频数据
         y, sr = load_audio(audio_file)
         total_duration = librosa.get_duration(y=y, sr=sr)
         total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
@@ -146,6 +151,9 @@ if uploaded_files:
 
         seg_info = st.session_state.segment_info[audio_file.name]
         seg_idx = seg_info["current_seg"]
+        
+        # 清理文件名用于key
+        clean_name = clean_filename(audio_file.name)
         
         # 检查是否需要切换音频片段
         if (st.session_state.last_audio_file != audio_file.name 
@@ -189,24 +197,24 @@ if uploaded_files:
                 sf.write(audio_bytes, segment_y, sr, format='WAV')
                 st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-                # 波形图 + 频谱图（添加唯一key防止重复渲染）
+                # 波形图 + 频谱图（使用清理后的文件名作为key）
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown("#### 📈 波形图")
                     wave_img = generate_waveform_image(segment_y, sr)
                     st.image(wave_img, caption="Waveform", use_container_width=True, 
-                             key=f"waveform_{audio_file.name}_{seg_idx}")
+                             key=f"waveform_{clean_name}_{seg_idx}")
 
                 with col2:
                     st.markdown("#### 🎞️ 频谱图")
                     spec_img = generate_spectrogram_image(segment_y, sr)
                     st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True,
-                             key=f"spectrogram_{audio_file.name}_{seg_idx}")
+                             key=f"spectrogram_{clean_name}_{seg_idx}")
 
             with col_labels:  # 右侧区域：标签选择 + 操作按钮
                 st.markdown("### 🐸 物种标签（可多选）")
                 species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
-                current_key_prefix = f"{audio_file.name}_{seg_idx}"
+                current_key_prefix = f"{clean_name}_{seg_idx}"  # 使用清理后的文件名
 
                 # 切换片段时重置复选框状态
                 if (st.session_state.last_audio_file != audio_file.name 
