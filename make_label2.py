@@ -58,12 +58,6 @@ if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
 if "current_index" not in st.session_state:
     st.session_state.current_index = 0
-if "label_reset_key" not in st.session_state:
-    st.session_state.label_reset_key = str(uuid.uuid4())
-if "selected_labels" not in st.session_state:
-    st.session_state.selected_labels = set()
-if "reset_checkboxes" not in st.session_state:
-    st.session_state.reset_checkboxes = False
 if "segment_info" not in st.session_state:
     st.session_state.segment_info = {}
 if "last_audio_file" not in st.session_state:
@@ -151,12 +145,6 @@ if uploaded_files:
 
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
 
-        # 切换片段时清空标签
-        if st.session_state.last_audio_file != audio_file.name or st.session_state.last_seg_idx != seg_idx:
-            st.session_state.selected_labels.clear()
-            st.session_state.last_audio_file = audio_file.name
-            st.session_state.last_seg_idx = seg_idx
-
         # 计算当前段落的时间范围
         start_sec = seg_idx * SEGMENT_DURATION
         end_sec = min((seg_idx + 1) * SEGMENT_DURATION, total_duration)
@@ -164,8 +152,8 @@ if uploaded_files:
         end_sample = int(end_sec * sr)
         segment_y = y[start_sample:end_sample]
 
-        # 核心布局调整：左侧显示音频信息，右侧显示标签复选框
-        col_main, col_labels = st.columns([3, 1])  # 主区域:标签区域 = 3:1
+        # 核心布局：左侧主区域，右侧标签区域
+        col_main, col_labels = st.columns([3, 1])
 
         with col_main:
             # 播放音频段
@@ -193,45 +181,46 @@ if uploaded_files:
             with col_skip:
                 skip_clicked = st.button("跳过本段", key=f"skip_btn_{audio_file.name}_{seg_idx}")
 
-        with col_labels:  # 右侧单列显示复选框
+        with col_labels:  # 右侧标签区域
             st.markdown("### 🐸 物种标签（可多选）")
             species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
 
-            # 复选框状态管理
+            # 切换片段时重置复选框状态
+            if (st.session_state.last_audio_file != audio_file.name 
+                or st.session_state.last_seg_idx != seg_idx):
+                for label in species_list:
+                    key = f"label_checkbox_{label}_{current_key_prefix}"
+                    st.session_state[key] = False  # 强制重置为未选中
+                # 更新最后处理的音频和片段
+                st.session_state.last_audio_file = audio_file.name
+                st.session_state.last_seg_idx = seg_idx
+
+            # 渲染复选框并获取当前选中的标签
+            selected_labels = []
             for label in species_list:
                 key = f"label_checkbox_{label}_{current_key_prefix}"
-                # 初始化或重置状态
+                # 初始化状态（如果不存在）
                 if key not in st.session_state:
                     st.session_state[key] = False
-                # 当切换片段时强制重置复选框
-                if st.session_state.last_audio_file != audio_file.name or st.session_state.last_seg_idx != seg_idx:
-                    st.session_state[key] = False
-
-                # 渲染复选框，绑定状态
-                checked = st.checkbox(
-                    label,
-                    key=key,
-                    value=st.session_state[key]
-                )
-                # 更新状态（仅在变化时）
+                # 渲染复选框
+                checked = st.checkbox(label, key=key, value=st.session_state[key])
+                # 更新状态
                 if checked != st.session_state[key]:
                     st.session_state[key] = checked
-                    # 同步到selected_labels集合
-                    if checked:
-                        st.session_state.selected_labels.add(label)
-                    else:
-                        st.session_state.selected_labels.discard(label)
+                # 收集当前选中的标签
+                if st.session_state[key]:
+                    selected_labels.append(label)
 
-            # 显示当前选中的标签（辅助确认）
-            if st.session_state.selected_labels:
-                st.success(f"已选标签: {', '.join(st.session_state.selected_labels)}")
+            # 右侧显示已选标签
+            if selected_labels:
+                st.success(f"已选标签: {', '.join(selected_labels)}")
             else:
                 st.info("请选择至少一个标签")
 
-        # 保存逻辑
+        # 保存逻辑（关键修复：直接使用右侧收集的selected_labels）
         if save_clicked:
-            if not st.session_state.selected_labels:
+            if not selected_labels:  # 直接检查右侧实际选中的标签
                 st.warning("❗请先选择至少一个物种标签！")
             else:
                 # 保存分片音频
@@ -245,7 +234,7 @@ if uploaded_files:
                     "segment_index": segment_filename,
                     "start_time": round(start_sec, 3),
                     "end_time": round(end_sec, 3),
-                    "labels": ",".join(st.session_state.selected_labels)
+                    "labels": ",".join(selected_labels)
                 }
 
                 st.session_state.annotations.append(entry)
