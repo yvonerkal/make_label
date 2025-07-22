@@ -64,6 +64,8 @@ if "last_audio_file" not in st.session_state:
     st.session_state.last_audio_file = None
 if "last_seg_idx" not in st.session_state:
     st.session_state.last_seg_idx = -1
+if "is_loading" not in st.session_state:
+    st.session_state.is_loading = False
 
 
 st.set_page_config(layout="wide")
@@ -133,127 +135,166 @@ if uploaded_files:
 
     if st.session_state.current_index < len(unprocessed):
         audio_file = unprocessed[st.session_state.current_index]
-        y, sr = load_audio(audio_file)
-        total_duration = librosa.get_duration(y=y, sr=sr)
-        total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
-
-        if audio_file.name not in st.session_state.segment_info:
-            st.session_state.segment_info[audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
-
-        seg_info = st.session_state.segment_info[audio_file.name]
+        
+        # 获取当前片段信息（不移除，用于判断是否需要加载）
+        seg_info = st.session_state.segment_info.get(audio_file.name, {"current_seg": 0})
         seg_idx = seg_info["current_seg"]
+        
+        # 检查是否需要切换音频片段（使用当前片段信息）
+        if (st.session_state.last_audio_file != audio_file.name 
+            or st.session_state.last_seg_idx != seg_idx):
+            st.session_state.is_loading = True
+        
+        # 只有在不是加载状态时才显示标题
+        if not st.session_state.is_loading:
+            st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
+        else:
+            st.header("正在加载音频片段...")
+            # 显示加载状态后，立即更新会话状态
+            st.session_state.last_audio_file = audio_file.name
+            st.session_state.last_seg_idx = seg_idx
+            
+            # 加载音频和计算片段
+            y, sr = load_audio(audio_file)
+            total_duration = librosa.get_duration(y=y, sr=sr)
+            total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
 
-        st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
+            if audio_file.name not in st.session_state.segment_info:
+                st.session_state.segment_info[audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
 
-        # 计算当前段落的时间范围
-        start_sec = seg_idx * SEGMENT_DURATION
-        end_sec = min((seg_idx + 1) * SEGMENT_DURATION, total_duration)
-        start_sample = int(start_sec * sr)
-        end_sample = int(end_sec * sr)
-        segment_y = y[start_sample:end_sample]
+            # 计算当前段落的时间范围
+            start_sec = seg_idx * SEGMENT_DURATION
+            end_sec = min((seg_idx + 1) * SEGMENT_DURATION, total_duration)
+            start_sample = int(start_sec * sr)
+            end_sample = int(end_sec * sr)
+            segment_y = y[start_sample:end_sample]
+            
+            # 加载完成后重置状态
+            st.session_state.is_loading = False
+            st.experimental_rerun()  # 重新运行以显示完整内容
 
-        # 布局调整：左侧音频信息，右侧标签和操作
-        col_main, col_labels = st.columns([3, 1])
+        # 只有在非加载状态下才继续渲染内容
+        if not st.session_state.is_loading:
+            # 加载音频和计算片段（非首次加载时执行）
+            y, sr = load_audio(audio_file)
+            total_duration = librosa.get_duration(y=y, sr=sr)
+            total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
 
-        with col_main:
-            # 播放音频段
-            st.subheader("🎧 播放当前音频片段")
-            audio_bytes = io.BytesIO()
-            sf.write(audio_bytes, segment_y, sr, format='WAV')
-            st.audio(audio_bytes, format="audio/wav", start_time=0)
+            if audio_file.name not in st.session_state.segment_info:
+                st.session_state.segment_info[audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
 
-            # 波形图 + 频谱图
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("#### 📈 波形图")
-                wave_img = generate_waveform_image(segment_y, sr)
-                st.image(wave_img, caption="Waveform", use_container_width=True)
+            seg_info = st.session_state.segment_info[audio_file.name]
+            seg_idx = seg_info["current_seg"]
 
-            with col2:
-                st.markdown("#### 🎞️ 频谱图")
-                spec_img = generate_spectrogram_image(segment_y, sr)
-                st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
+            # 计算当前段落的时间范围
+            start_sec = seg_idx * SEGMENT_DURATION
+            end_sec = min((seg_idx + 1) * SEGMENT_DURATION, total_duration)
+            start_sample = int(start_sec * sr)
+            end_sample = int(end_sec * sr)
+            segment_y = y[start_sample:end_sample]
 
-        with col_labels:  # 右侧区域：标签选择 + 操作按钮
-            st.markdown("### 🐸 物种标签（可多选）")
-            species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
-            current_key_prefix = f"{audio_file.name}_{seg_idx}"
+            # 布局调整：左侧音频信息，右侧标签和操作
+            col_main, col_labels = st.columns([3, 1])
 
-            # 切换片段时重置复选框状态
-            if (st.session_state.last_audio_file != audio_file.name 
-                or st.session_state.last_seg_idx != seg_idx):
+            with col_main:
+                # 播放音频段
+                st.subheader("🎧 播放当前音频片段")
+                audio_bytes = io.BytesIO()
+                sf.write(audio_bytes, segment_y, sr, format='WAV')
+                st.audio(audio_bytes, format="audio/wav", start_time=0)
+
+                # 波形图 + 频谱图（添加唯一key防止重复渲染）
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("#### 📈 波形图")
+                    wave_img = generate_waveform_image(segment_y, sr)
+                    st.image(wave_img, caption="Waveform", use_container_width=True, 
+                             key=f"waveform_{audio_file.name}_{seg_idx}")
+
+                with col2:
+                    st.markdown("#### 🎞️ 频谱图")
+                    spec_img = generate_spectrogram_image(segment_y, sr)
+                    st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True,
+                             key=f"spectrogram_{audio_file.name}_{seg_idx}")
+
+            with col_labels:  # 右侧区域：标签选择 + 操作按钮
+                st.markdown("### 🐸 物种标签（可多选）")
+                species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
+                current_key_prefix = f"{audio_file.name}_{seg_idx}"
+
+                # 切换片段时重置复选框状态
+                if (st.session_state.last_audio_file != audio_file.name 
+                    or st.session_state.last_seg_idx != seg_idx):
+                    for label in species_list:
+                        key = f"label_checkbox_{label}_{current_key_prefix}"
+                        st.session_state[key] = False
+
+                # 渲染复选框并收集选中的标签
+                selected_labels = []
                 for label in species_list:
                     key = f"label_checkbox_{label}_{current_key_prefix}"
-                    st.session_state[key] = False
-                st.session_state.last_audio_file = audio_file.name
-                st.session_state.last_seg_idx = seg_idx
+                    if key not in st.session_state:
+                        st.session_state[key] = False
+                    checked = st.checkbox(label, key=key, value=st.session_state[key])
+                    if checked != st.session_state[key]:
+                        st.session_state[key] = checked
+                    if st.session_state[key]:
+                        selected_labels.append(label)
 
-            # 渲染复选框并收集选中的标签
-            selected_labels = []
-            for label in species_list:
-                key = f"label_checkbox_{label}_{current_key_prefix}"
-                if key not in st.session_state:
-                    st.session_state[key] = False
-                checked = st.checkbox(label, key=key, value=st.session_state[key])
-                if checked != st.session_state[key]:
-                    st.session_state[key] = checked
-                if st.session_state[key]:
-                    selected_labels.append(label)
+                # 显示已选标签
+                if selected_labels:
+                    st.success(f"已选标签: {', '.join(selected_labels)}")
+                else:
+                    st.info("请选择至少一个标签")
 
-            # 显示已选标签
-            if selected_labels:
-                st.success(f"已选标签: {', '.join(selected_labels)}")
-            else:
-                st.info("请选择至少一个标签")
+                # 操作按钮
+                st.markdown("### 🛠️ 操作")
+                col_save, col_skip = st.columns(2)
+                with col_save:
+                    save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
+                with col_skip:
+                    skip_clicked = st.button("跳过本段", key=f"skip_btn_{current_key_prefix}")
 
-            # 操作按钮（移至右侧标签下方）
-            st.markdown("### 🛠️ 操作")
-            col_save, col_skip = st.columns(2)
-            with col_save:
-                save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
-            with col_skip:
-                skip_clicked = st.button("跳过本段", key=f"skip_btn_{current_key_prefix}")
+            # 保存逻辑
+            if save_clicked:
+                if not selected_labels:
+                    st.warning("❗请先选择至少一个物种标签！")
+                else:
+                    # 保存分片音频
+                    segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
+                    segment_path = os.path.join(output_dir, segment_filename)
+                    sf.write(segment_path, segment_y, sr)
 
-        # 保存逻辑
-        if save_clicked:
-            if not selected_labels:
-                st.warning("❗请先选择至少一个物种标签！")
-            else:
-                # 保存分片音频
-                segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
-                segment_path = os.path.join(output_dir, segment_filename)
-                sf.write(segment_path, segment_y, sr)
+                    # 保存到CSV
+                    entry = {
+                        "filename": audio_file.name,
+                        "segment_index": segment_filename,
+                        "start_time": round(start_sec, 3),
+                        "end_time": round(end_sec, 3),
+                        "labels": ",".join(selected_labels)
+                    }
 
-                # 保存到CSV
-                entry = {
-                    "filename": audio_file.name,
-                    "segment_index": segment_filename,
-                    "start_time": round(start_sec, 3),
-                    "end_time": round(end_sec, 3),
-                    "labels": ",".join(selected_labels)
-                }
+                    st.session_state.annotations.append(entry)
+                    df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
+                    df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-                st.session_state.annotations.append(entry)
-                df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
-                df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                    # 切换分片或下一个文件
+                    if seg_idx + 1 < total_segments:
+                        st.session_state.segment_info[audio_file.name]["current_seg"] += 1
+                    else:
+                        st.session_state.processed_files.add(audio_file.name)
+                        st.session_state.current_index += 1
 
-                # 切换分片或下一个文件
+                    st.success("标注已保存！")
+                    st.experimental_rerun()
+
+            if skip_clicked:
                 if seg_idx + 1 < total_segments:
                     st.session_state.segment_info[audio_file.name]["current_seg"] += 1
                 else:
                     st.session_state.processed_files.add(audio_file.name)
                     st.session_state.current_index += 1
-
-                st.success("标注已保存！")
                 st.experimental_rerun()
-
-        if skip_clicked:
-            if seg_idx + 1 < total_segments:
-                st.session_state.segment_info[audio_file.name]["current_seg"] += 1
-            else:
-                st.session_state.processed_files.add(audio_file.name)
-                st.session_state.current_index += 1
-            st.experimental_rerun()
 
     # 检查是否所有音频都已标注完成
     all_done = True
