@@ -122,7 +122,7 @@ if uploaded_files:
 SEGMENT_DURATION = 5.0  # 每段时长（秒）
 
 if uploaded_files:
-    current_key_prefix = f"{audio_file.name}_seg{seg_idx}"
+    
 
     unprocessed = [f for f in uploaded_files if not is_fully_annotated(f)]
 
@@ -193,7 +193,7 @@ if uploaded_files:
                 key = f"label_checkbox_{label}_{current_key_prefix}"
                 st.session_state[key] = False  # 在checkbox实例化前重置
             st.session_state.reset_checkboxes = False  # 重置标志
-
+        current_key_prefix = f"{audio_file.name}_seg{seg_idx}"
         # 创建checkbox
         for i, label in enumerate(species_list):
             key = f"label_checkbox_{label}_{current_key_prefix}"
