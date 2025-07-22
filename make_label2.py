@@ -58,7 +58,7 @@ def toggle_label(label):
 st.set_page_config(layout="wide")
 if st.session_state.get("need_rerun", False):
     st.session_state.need_rerun = False
-    st.experimental_rerun()
+    st.rerun()
 
 st.title("🐸 青蛙音频标注工具")
 
