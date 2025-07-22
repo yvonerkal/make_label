@@ -56,6 +56,10 @@ def toggle_label(label):
         st.session_state.selected_labels.add(label)
 
 st.set_page_config(layout="wide")
+if st.session_state.get("need_rerun", False):
+    st.session_state.need_rerun = False
+    st.experimental_rerun()
+
 st.title("🐸 青蛙音频标注工具")
 
 # ======== 侧边栏 =========
@@ -249,7 +253,8 @@ if uploaded_files:
                 st.session_state.reset_checkboxes = True
 
                 # ✅ 最后再 rerun 页面
-                st.experimental_rerun()
+                st.session_state.need_rerun = True
+
 
     # 检查是否所有音频的所有片段都已标注完成
 
