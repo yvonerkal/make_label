@@ -152,7 +152,7 @@ if uploaded_files:
         end_sample = int(end_sec * sr)
         segment_y = y[start_sample:end_sample]
 
-        # 核心布局：左侧主区域，右侧标签区域
+        # 布局调整：左侧音频信息，右侧标签和操作
         col_main, col_labels = st.columns([3, 1])
 
         with col_main:
@@ -174,14 +174,7 @@ if uploaded_files:
                 spec_img = generate_spectrogram_image(segment_y, sr)
                 st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
 
-            # 操作按钮
-            col_save, col_skip = st.columns(2)
-            with col_save:
-                save_clicked = st.button("保存本段标注", key=f"save_btn_{audio_file.name}_{seg_idx}")
-            with col_skip:
-                skip_clicked = st.button("跳过本段", key=f"skip_btn_{audio_file.name}_{seg_idx}")
-
-        with col_labels:  # 右侧标签区域
+        with col_labels:  # 右侧区域：标签选择 + 操作按钮
             st.markdown("### 🐸 物种标签（可多选）")
             species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
@@ -191,36 +184,39 @@ if uploaded_files:
                 or st.session_state.last_seg_idx != seg_idx):
                 for label in species_list:
                     key = f"label_checkbox_{label}_{current_key_prefix}"
-                    st.session_state[key] = False  # 强制重置为未选中
-                # 更新最后处理的音频和片段
+                    st.session_state[key] = False
                 st.session_state.last_audio_file = audio_file.name
                 st.session_state.last_seg_idx = seg_idx
 
-            # 渲染复选框并获取当前选中的标签
+            # 渲染复选框并收集选中的标签
             selected_labels = []
             for label in species_list:
                 key = f"label_checkbox_{label}_{current_key_prefix}"
-                # 初始化状态（如果不存在）
                 if key not in st.session_state:
                     st.session_state[key] = False
-                # 渲染复选框
                 checked = st.checkbox(label, key=key, value=st.session_state[key])
-                # 更新状态
                 if checked != st.session_state[key]:
                     st.session_state[key] = checked
-                # 收集当前选中的标签
                 if st.session_state[key]:
                     selected_labels.append(label)
 
-            # 右侧显示已选标签
+            # 显示已选标签
             if selected_labels:
                 st.success(f"已选标签: {', '.join(selected_labels)}")
             else:
                 st.info("请选择至少一个标签")
 
-        # 保存逻辑（关键修复：直接使用右侧收集的selected_labels）
+            # 操作按钮（移至右侧标签下方）
+            st.markdown("### 🛠️ 操作")
+            col_save, col_skip = st.columns(2)
+            with col_save:
+                save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
+            with col_skip:
+                skip_clicked = st.button("跳过本段", key=f"skip_btn_{current_key_prefix}")
+
+        # 保存逻辑
         if save_clicked:
-            if not selected_labels:  # 直接检查右侧实际选中的标签
+            if not selected_labels:
                 st.warning("❗请先选择至少一个物种标签！")
             else:
                 # 保存分片音频
@@ -249,7 +245,7 @@ if uploaded_files:
                     st.session_state.current_index += 1
 
                 st.success("标注已保存！")
-                st.experimental_rerun()
+                st.rerun()
 
         if skip_clicked:
             if seg_idx + 1 < total_segments:
