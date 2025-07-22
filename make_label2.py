@@ -171,7 +171,7 @@ if uploaded_files:
             
             # 加载完成后重置状态
             st.session_state.is_loading = False
-            st.experimental_rerun()  # 重新运行以显示完整内容
+            st.rerun()  # 重新运行以显示完整内容
 
         # 只有在非加载状态下才继续渲染内容
         if not st.session_state.is_loading:
