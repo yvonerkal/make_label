@@ -21,6 +21,8 @@ def load_audio(file):
     return librosa.load(file, sr=None)
 
 
+
+
 @st.cache_data
 def generate_spectrogram_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -35,6 +37,8 @@ def generate_spectrogram_image(y, sr):
     return Image.open(buf)
 
 
+
+
 @st.cache_data
 def generate_waveform_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -47,11 +51,15 @@ def generate_waveform_image(y, sr):
     return Image.open(buf)
 
 
+
+
 def is_fully_annotated(file):
     info = st.session_state.segment_info.get(file.name)
     if info is None:
         return False
     return info["current_seg"] >= info["total_seg"]
+
+
 
 
 # ======== Session 状态初始化 =========
@@ -67,12 +75,13 @@ if "last_audio_file" not in st.session_state:
     st.session_state.last_audio_file = None
 if "last_seg_idx" not in st.session_state:
     st.session_state.last_seg_idx = -1
-if "auto_play" not in st.session_state:
-    st.session_state.auto_play = True  # 自动播放开关
+
 
 st.set_page_config(layout="wide")
 
+
 st.title("🐸 青蛙音频标注工具")
+
 
 # ======== 侧边栏 =========
 with st.sidebar:
@@ -85,6 +94,7 @@ with st.sidebar:
     else:
         df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
 
+
     # 下载区域
     st.markdown("### 📥 下载标注结果")
     if os.path.exists(csv_path):
@@ -96,6 +106,7 @@ with st.sidebar:
                 mime="text/csv"
             )
 
+
     # 音频片段下载
     annotated_paths = []
     if os.path.exists(csv_path):
@@ -104,6 +115,7 @@ with st.sidebar:
             full_path = os.path.join(output_dir, fname)
             if os.path.exists(full_path):
                 annotated_paths.append(full_path)
+
 
     if annotated_paths:
         zip_buffer = BytesIO()
@@ -119,8 +131,6 @@ with st.sidebar:
             mime="application/zip"
         )
 
-    # 自动播放开关
-    st.session_state.auto_play = st.checkbox("自动播放音频", value=st.session_state.auto_play)
 
     # 标注状态显示
     if uploaded_files:
@@ -131,11 +141,14 @@ with st.sidebar:
         with st.expander("🕓 未标注音频", expanded=True):
             st.write([f.name for f in uploaded_files if f.name not in st.session_state.processed_files])
 
+
 # ======== 主处理区域 =========
 SEGMENT_DURATION = 5.0  # 每段时长（秒）
 
+
 if uploaded_files:
     unprocessed = [f for f in uploaded_files if not is_fully_annotated(f)]
+
 
     if st.session_state.current_index < len(unprocessed):
         audio_file = unprocessed[st.session_state.current_index]
@@ -143,13 +156,17 @@ if uploaded_files:
         total_duration = librosa.get_duration(y=y, sr=sr)
         total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
 
+
         if audio_file.name not in st.session_state.segment_info:
             st.session_state.segment_info[audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
+
 
         seg_info = st.session_state.segment_info[audio_file.name]
         seg_idx = seg_info["current_seg"]
 
+
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
+
 
         # 计算当前段落的时间范围
         start_sec = seg_idx * SEGMENT_DURATION
@@ -158,44 +175,18 @@ if uploaded_files:
         end_sample = int(end_sec * sr)
         segment_y = y[start_sample:end_sample]
 
+
         # 布局调整：左侧音频信息，右侧标签和操作
         col_main, col_labels = st.columns([3, 1])
+
 
         with col_main:
             # 播放音频段
             st.subheader("🎧 播放当前音频片段")
             audio_bytes = io.BytesIO()
             sf.write(audio_bytes, segment_y, sr, format='WAV')
+            st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-            # 生成随机ID，确保每次加载新音频时ID不同
-            audio_id = f"audio_{uuid.uuid4()}"
-
-            # 使用HTML音频元素，支持自动播放属性
-            if st.session_state.auto_play:
-                # 自动播放逻辑
-                st.markdown(f"""
-                <audio id="{audio_id}" autoplay controls>
-                    <source src="data:audio/wav;base64,{audio_bytes.getvalue().hex()}" type="audio/wav">
-                    您的浏览器不支持音频播放。
-                </audio>
-                <script>
-                    // 尝试自动播放
-                    var audio = document.getElementById('{audio_id}');
-                    audio.play().catch(e => {{
-                        console.log('自动播放被阻止:', e);
-                        // 可以在这里添加用户交互触发播放的逻辑
-                    }});
-                </script>
-                """, unsafe_allow_html=True)
-
-                # 显示自动播放状态
-                autoplay_status = "✅ 已启用自动播放"
-                if st.session_state.get("autoplay_blocked", False):
-                    autoplay_status = "⚠️ 自动播放被浏览器阻止，需要您先进行交互（如点击页面）"
-                st.info(autoplay_status)
-            else:
-                # 非自动播放模式
-                st.audio(audio_bytes, format="audio/wav", start_time=0)
 
             # 波形图 + 频谱图
             col1, col2 = st.columns(2)
@@ -204,15 +195,18 @@ if uploaded_files:
                 wave_img = generate_waveform_image(segment_y, sr)
                 st.image(wave_img, caption="Waveform", use_container_width=True)
 
+
             with col2:
                 st.markdown("#### 🎞️ 频谱图")
                 spec_img = generate_spectrogram_image(segment_y, sr)
                 st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
 
+
         with col_labels:  # 右侧区域：标签选择 + 操作按钮
             st.markdown("### 🐸 物种标签（可多选）")
             species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
+
 
             # 切换片段时重置复选框状态
             if (st.session_state.last_audio_file != audio_file.name
@@ -222,6 +216,7 @@ if uploaded_files:
                     st.session_state[key] = False
                 st.session_state.last_audio_file = audio_file.name
                 st.session_state.last_seg_idx = seg_idx
+
 
             # 渲染复选框并收集选中的标签
             selected_labels = []
@@ -235,11 +230,13 @@ if uploaded_files:
                 if st.session_state[key]:
                     selected_labels.append(label)
 
+
             # 显示已选标签
             if selected_labels:
                 st.success(f"已选标签: {', '.join(selected_labels)}")
             else:
                 st.info("请选择至少一个标签")
+
 
             # 操作按钮（移至右侧标签下方）
             st.markdown("### 🛠️ 操作")
@@ -248,6 +245,7 @@ if uploaded_files:
                 save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
             with col_skip:
                 skip_clicked = st.button("跳过本段", key=f"skip_btn_{current_key_prefix}")
+
 
         # 保存逻辑
         if save_clicked:
@@ -259,6 +257,7 @@ if uploaded_files:
                 segment_path = os.path.join(output_dir, segment_filename)
                 sf.write(segment_path, segment_y, sr)
 
+
                 # 保存到CSV
                 entry = {
                     "filename": audio_file.name,
@@ -268,9 +267,11 @@ if uploaded_files:
                     "labels": ",".join(selected_labels)
                 }
 
+
                 st.session_state.annotations.append(entry)
                 df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
                 df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
+
 
                 # 切换分片或下一个文件
                 if seg_idx + 1 < total_segments:
@@ -279,8 +280,10 @@ if uploaded_files:
                     st.session_state.processed_files.add(audio_file.name)
                     st.session_state.current_index += 1
 
+
                 st.success("标注已保存！")
                 st.rerun()
+
 
         if skip_clicked:
             if seg_idx + 1 < total_segments:
@@ -289,6 +292,7 @@ if uploaded_files:
                 st.session_state.processed_files.add(audio_file.name)
                 st.session_state.current_index += 1
             st.rerun()
+
 
     # 检查是否所有音频都已标注完成
     all_done = True
