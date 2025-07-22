@@ -64,6 +64,8 @@ if "last_audio_file" not in st.session_state:
     st.session_state.last_audio_file = None
 if "last_seg_idx" not in st.session_state:
     st.session_state.last_seg_idx = -1
+if "is_loading" not in st.session_state:
+    st.session_state.is_loading = False
 
 
 st.set_page_config(layout="wide")
@@ -133,6 +135,20 @@ if uploaded_files:
 
     if st.session_state.current_index < len(unprocessed):
         audio_file = unprocessed[st.session_state.current_index]
+        
+        # 检查是否需要切换音频片段
+        if (st.session_state.last_audio_file != audio_file.name 
+            or st.session_state.last_seg_idx != st.session_state.segment_info[audio_file.name]["current_seg"]):
+            st.session_state.is_loading = True
+        
+        # 只有在不是加载状态时才显示标题
+        if not st.session_state.is_loading:
+            st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
+        else:
+            st.header("正在加载音频片段...")
+            st.stop()  # 暂停执行，防止重复渲染
+        
+        # 加载音频和计算片段
         y, sr = load_audio(audio_file)
         total_duration = librosa.get_duration(y=y, sr=sr)
         total_segments = int(np.ceil(total_duration / SEGMENT_DURATION))
@@ -143,6 +159,12 @@ if uploaded_files:
         seg_info = st.session_state.segment_info[audio_file.name]
         seg_idx = seg_info["current_seg"]
 
+        # 更新当前音频和片段信息
+        st.session_state.last_audio_file = audio_file.name
+        st.session_state.last_seg_idx = seg_idx
+        st.session_state.is_loading = False  # 加载完成
+
+        # 重新设置标题（加载完成后更新为正确的标题）
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
 
         # 计算当前段落的时间范围
@@ -162,17 +184,19 @@ if uploaded_files:
             sf.write(audio_bytes, segment_y, sr, format='WAV')
             st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-            # 波形图 + 频谱图
+            # 波形图 + 频谱图（添加唯一key防止重复渲染）
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("#### 📈 波形图")
                 wave_img = generate_waveform_image(segment_y, sr)
-                st.image(wave_img, caption="Waveform", use_container_width=True)
+                st.image(wave_img, caption="Waveform", use_container_width=True, 
+                         key=f"waveform_{audio_file.name}_{seg_idx}")
 
             with col2:
                 st.markdown("#### 🎞️ 频谱图")
                 spec_img = generate_spectrogram_image(segment_y, sr)
-                st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
+                st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True,
+                         key=f"spectrogram_{audio_file.name}_{seg_idx}")
 
         with col_labels:  # 右侧区域：标签选择 + 操作按钮
             st.markdown("### 🐸 物种标签（可多选）")
@@ -185,8 +209,6 @@ if uploaded_files:
                 for label in species_list:
                     key = f"label_checkbox_{label}_{current_key_prefix}"
                     st.session_state[key] = False
-                st.session_state.last_audio_file = audio_file.name
-                st.session_state.last_seg_idx = seg_idx
 
             # 渲染复选框并收集选中的标签
             selected_labels = []
@@ -206,7 +228,7 @@ if uploaded_files:
             else:
                 st.info("请选择至少一个标签")
 
-            # 操作按钮（移至右侧标签下方）
+            # 操作按钮
             st.markdown("### 🛠️ 操作")
             col_save, col_skip = st.columns(2)
             with col_save:
