@@ -55,8 +55,21 @@ def is_fully_annotated(file):
 def clean_filename(filename):
     if not filename:
         return "unknown_file"
+    # 只保留字母、数字、下划线和连字符
     cleaned = "".join(e for e in filename if e.isalnum() or e in ['_', '-'])
-    return cleaned if cleaned else "unknown_file"
+    # 如果清理后为空，使用基于UUID的唯一名称
+    if not cleaned:
+        return f"file_{uuid.uuid4().hex[:8]}"
+    return cleaned
+
+
+# 生成安全的key参数
+def generate_safe_key(prefix, *components):
+    # 将所有组件转换为字符串并清理
+    cleaned_components = [clean_filename(str(c)) for c in components]
+    # 连接所有组件，确保长度不超过200个字符（Streamlit的限制）
+    full_key = "_".join([prefix] + cleaned_components)
+    return full_key[:200]
 
 
 # ======== Session 状态初始化 =========
@@ -155,8 +168,11 @@ if uploaded_files:
         seg_info = st.session_state.segment_info[audio_file.name]
         seg_idx = seg_info["current_seg"]
         
-        # 清理文件名用于key
-        clean_name = clean_filename(audio_file.name)
+        # 生成安全的key
+        waveform_key = generate_safe_key("waveform", audio_file.name, seg_idx)
+        spectrogram_key = generate_safe_key("spectrogram", audio_file.name, seg_idx)
+        checkbox_prefix = generate_safe_key("checkbox", audio_file.name, seg_idx)
+        button_prefix = generate_safe_key("button", audio_file.name, seg_idx)
         
         # 检查是否需要切换音频片段
         if (st.session_state.last_audio_file != audio_file.name 
@@ -200,36 +216,35 @@ if uploaded_files:
                 sf.write(audio_bytes, segment_y, sr, format='WAV')
                 st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-                # 波形图 + 频谱图（使用清理后的文件名作为key）
+                # 波形图 + 频谱图（使用安全的key）
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown("#### 📈 波形图")
                     wave_img = generate_waveform_image(segment_y, sr)
                     st.image(wave_img, caption="Waveform", use_container_width=True, 
-                             key=f"waveform_{clean_name}_{seg_idx}")
+                             key=waveform_key)
 
                 with col2:
                     st.markdown("#### 🎞️ 频谱图")
                     spec_img = generate_spectrogram_image(segment_y, sr)
                     st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True,
-                             key=f"spectrogram_{clean_name}_{seg_idx}")
+                             key=spectrogram_key)
 
             with col_labels:  # 右侧区域：标签选择 + 操作按钮
                 st.markdown("### 🐸 物种标签（可多选）")
                 species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
-                current_key_prefix = f"{clean_name}_{seg_idx}"  # 使用清理后的文件名
 
                 # 切换片段时重置复选框状态
                 if (st.session_state.last_audio_file != audio_file.name 
                     or st.session_state.last_seg_idx != seg_idx):
                     for label in species_list:
-                        key = f"label_checkbox_{label}_{current_key_prefix}"
+                        key = f"{checkbox_prefix}_{label}"
                         st.session_state[key] = False
 
                 # 渲染复选框并收集选中的标签
                 selected_labels = []
                 for label in species_list:
-                    key = f"label_checkbox_{label}_{current_key_prefix}"
+                    key = f"{checkbox_prefix}_{label}"
                     if key not in st.session_state:
                         st.session_state[key] = False
                     checked = st.checkbox(label, key=key, value=st.session_state[key])
@@ -248,9 +263,9 @@ if uploaded_files:
                 st.markdown("### 🛠️ 操作")
                 col_save, col_skip = st.columns(2)
                 with col_save:
-                    save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
+                    save_clicked = st.button("保存本段标注", key=f"{button_prefix}_save")
                 with col_skip:
-                    skip_clicked = st.button("跳过本段", key=f"skip_btn_{current_key_prefix}")
+                    skip_clicked = st.button("跳过本段", key=f"{button_prefix}_skip")
 
             # 保存逻辑
             if save_clicked:
