@@ -139,7 +139,7 @@ def unlock_audio():
     if not st.session_state.audio_unlocked:
         st.session_state.audio_unlocked = True
         st.info("🔊 音频已解锁，现在可以自动播放")
-        st.experimental_rerun()
+        st.rerun()
 
 # 预加载当前和下一个音频片段
 def preload_audio(audio_file, seg_idx):
@@ -343,7 +343,7 @@ if uploaded_files:
                     st.session_state.current_index += 1
 
                 st.success("标注已保存！")
-                st.experimental_rerun()
+                st.rerun()
 
         if skip_clicked:
             if seg_idx + 1 < total_segments:
@@ -351,7 +351,7 @@ if uploaded_files:
             else:
                 st.session_state.processed_files.add(audio_file.name)
                 st.session_state.current_index += 1
-            st.experimental_rerun()
+            st.rerun()
 
     # 检查是否所有音频都已标注完成
     all_done = True
