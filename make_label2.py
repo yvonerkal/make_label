@@ -268,7 +268,7 @@ if uploaded_files:
             else:
                 st.session_state.processed_files.add(audio_file.name)
                 st.session_state.current_index += 1
-            st.experimental_rerun()
+            st.rerun()
 
     # 检查是否所有音频都已标注完成
     all_done = True
