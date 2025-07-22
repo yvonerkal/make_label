@@ -216,14 +216,12 @@ if uploaded_files:
 
         # 保存按钮逻辑
         if st.button("保存本段标注", key=f"save_btn_{current_key_prefix}"):
-            # 获取当前选中的标签
             selected_labels = [label for label in species_list
-                              if st.session_state[f"label_checkbox_{label}_{current_key_prefix}"]]
+                               if st.session_state.get(f"label_checkbox_{label}_{current_key_prefix}", False)]
 
             if not selected_labels:
                 st.warning("❗请先选择至少一个物种标签！")
             else:
-                # 保存标注到CSV
                 segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
                 segment_path = os.path.join(output_dir, segment_filename)
                 sf.write(segment_path, segment_y, sr)
@@ -240,17 +238,18 @@ if uploaded_files:
                 df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
                 df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-                # 关键修改：不直接修改checkbox的session_state，而是设置重置标志
-                st.session_state.reset_checkboxes = True
-
-                # 跳转到下一段或下一个文件
+                # 🟡 先更新 session 状态
                 if seg_idx + 1 < total_segments:
                     st.session_state.segment_info[audio_file.name]["current_seg"] += 1
                 else:
                     st.session_state.processed_files.add(audio_file.name)
                     st.session_state.current_index += 1
 
-                st.session_state.need_rerun = True
+                # 🔁 标志位用于刷新 checkbox（可选）
+                st.session_state.reset_checkboxes = True
+
+                # ✅ 最后再 rerun 页面
+                st.experimental_rerun()
 
     # 检查是否所有音频的所有片段都已标注完成
 
