@@ -21,8 +21,6 @@ def load_audio(file):
     return librosa.load(file, sr=None)
 
 
-
-
 @st.cache_data
 def generate_spectrogram_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -37,8 +35,6 @@ def generate_spectrogram_image(y, sr):
     return Image.open(buf)
 
 
-
-
 @st.cache_data
 def generate_waveform_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -51,15 +47,11 @@ def generate_waveform_image(y, sr):
     return Image.open(buf)
 
 
-
-
 def is_fully_annotated(file):
     info = st.session_state.segment_info.get(file.name)
     if info is None:
         return False
     return info["current_seg"] >= info["total_seg"]
-
-
 
 
 # ======== Session 状态初始化 =========
@@ -86,7 +78,7 @@ st.title("🐸 青蛙音频标注工具")
 # ======== 侧边栏 =========
 with st.sidebar:
     uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True)
-    output_dir =st.text_input("保存目录", "E:/Frog audio classification/uploaded_audios")
+    output_dir = st.text_input("保存目录", "E:/Frog audio classification/uploaded_audios")
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
     if os.path.exists(csv_path):
@@ -107,14 +99,24 @@ with st.sidebar:
             )
 
 
-    # 音频片段下载
+    # 音频片段下载（修复部分）
     annotated_paths = []
     if os.path.exists(csv_path):
         df_tmp = pd.read_csv(csv_path)
-        for fname in df_tmp["segment_index"]:
-            full_path = os.path.join(output_dir, fname)
-            if os.path.exists(full_path):
-                annotated_paths.append(full_path)
+        # 检查是否存在segment_index列
+        if "segment_index" in df_tmp.columns:
+            # 遍历每一行，确保fname是字符串类型
+            for idx, row in df_tmp.iterrows():
+                try:
+                    fname = str(row["segment_index"])  # 强制转换为字符串
+                    if pd.notna(fname) and fname.strip() != "":  # 排除空值
+                        full_path = os.path.join(output_dir, fname)
+                        if os.path.exists(full_path):
+                            annotated_paths.append(full_path)
+                except Exception as e:
+                    st.warning(f"处理音频片段路径时出错: {str(e)}")
+        else:
+            st.warning("CSV文件中缺少 'segment_index' 列，无法生成音频下载包")
 
 
     if annotated_paths:
@@ -203,8 +205,8 @@ if uploaded_files:
 
 
         with col_labels:  # 右侧区域：标签选择 + 操作按钮
-            st.markdown("###物种标签（可多选）")
-            species_list = ["北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍","泽蛙","其他"]
+            st.markdown("### 物种标签（可多选）")  # 修复了标题格式
+            species_list = ["北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍", "泽蛙", "其他"]
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
 
 
