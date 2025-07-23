@@ -86,7 +86,7 @@ st.title("青蛙音频标注工具")
 # ======== 侧边栏 =========
 with st.sidebar:
     uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True)
-    output_dir = "E:/Frog audio classification/uploaded_audios"
+     os.path.join(os.getcwd(), "uploaded_audios")
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
     if os.path.exists(csv_path):
