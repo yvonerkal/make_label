@@ -92,7 +92,7 @@ with st.sidebar:
     if os.path.exists(csv_path):
         df_old = pd.read_csv(csv_path, encoding="utf-8")
     else:
-        df_old = pd.DataFrame(columns=["filename", "labels"])
+        df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
 
 
     # 下载区域
@@ -260,6 +260,9 @@ if uploaded_files:
                 # 保存到CSV
                 entry = {
                     "filename": audio_file.name,
+                     "segment_index": segment_filename,
+                    "start_time": round(start_sec, 3),
+                    "end_time": round(end_sec, 3),
                     "labels": ",".join(selected_labels)
                 }
 
