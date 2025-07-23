@@ -260,7 +260,7 @@ if uploaded_files:
                 # 保存到CSV
                 entry = {
                     "filename": audio_file.name,
-                     "segment_index": segment_filename,
+                    "segment_index": segment_filename,
                     "start_time": round(start_sec, 3),
                     "end_time": round(end_sec, 3),
                     "labels": ",".join(selected_labels)
