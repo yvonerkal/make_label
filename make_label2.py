@@ -72,7 +72,7 @@ if "last_seg_idx" not in st.session_state:
 st.set_page_config(layout="wide")
 
 
-st.title("🐸 青蛙音频标注工具")
+st.title("青蛙音频标注工具")
 
 
 # ======== 侧边栏 =========
