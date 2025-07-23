@@ -80,19 +80,19 @@ if "last_seg_idx" not in st.session_state:
 st.set_page_config(layout="wide")
 
 
-st.title("🐸 青蛙音频标注工具")
+st.title("青蛙音频标注工具")
 
 
 # ======== 侧边栏 =========
 with st.sidebar:
     uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True)
-    output_dir = st.text_input("保存目录", "E:/Frog audio classification/uploaded_audios")
+    output_dir = "E:/Frog audio classification/uploaded_audios"
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
     if os.path.exists(csv_path):
         df_old = pd.read_csv(csv_path, encoding="utf-8")
     else:
-        df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
+        df_old = pd.DataFrame(columns=["filename", "labels"])
 
 
     # 下载区域
@@ -203,8 +203,8 @@ if uploaded_files:
 
 
         with col_labels:  # 右侧区域：标签选择 + 操作按钮
-            st.markdown("### 🐸 物种标签（可多选）")
-            species_list = ["Rana", "Hyla", "Bufo", "Fejervarya", "Microhyla", "Other"]
+            st.markdown("###物种标签（可多选）")
+            species_list = ["北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍","泽蛙","其他"]
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
 
 
@@ -239,7 +239,6 @@ if uploaded_files:
 
 
             # 操作按钮（移至右侧标签下方）
-            st.markdown("### 🛠️ 操作")
             col_save, col_skip = st.columns(2)
             with col_save:
                 save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
@@ -261,9 +260,6 @@ if uploaded_files:
                 # 保存到CSV
                 entry = {
                     "filename": audio_file.name,
-                    "segment_index": segment_filename,
-                    "start_time": round(start_sec, 3),
-                    "end_time": round(end_sec, 3),
                     "labels": ",".join(selected_labels)
                 }
 
