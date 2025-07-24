@@ -66,7 +66,6 @@ if "last_audio_file" not in st.session_state:
     st.session_state.last_audio_file = None
 if "last_seg_idx" not in st.session_state:
     st.session_state.last_seg_idx = -1
-# 初始化动态标签列表（关键修复：确保默认标签存在）
 if "dynamic_species_list" not in st.session_state:
     st.session_state["dynamic_species_list"] = [
         "北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍", "泽蛙", "其他"
@@ -88,19 +87,17 @@ with st.sidebar:
     else:
         df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
 
-    # 上传标签文件（核心修复：优化标签读取和状态更新）
+    # 标签设置
     st.markdown("### 🏷️ 标签设置")
     label_file = st.file_uploader("上传标签文件（每行一个标签）", type=["txt"], key="label_file_uploader")
 
-    if label_file is not None:  # 检测到新的标签文件上传
+    if label_file is not None:
         try:
-            # 读取并解码标签（支持中文）
-            content = label_file.read().decode("utf-8")  # 一次性读取所有内容并解码
-            species_list = [line.strip() for line in content.split("\n") if line.strip()]  # 按行分割
-            if species_list:  # 确保标签列表不为空
+            content = label_file.read().decode("utf-8")
+            species_list = [line.strip() for line in content.split("\n") if line.strip()]
+            if species_list:
                 st.session_state["dynamic_species_list"] = species_list
                 st.success(f"成功加载 {len(species_list)} 个标签！")
-                # 刷新页面使标签生效（使用st.rerun而非实验性方法）
                 st.rerun()
             else:
                 st.warning("标签文件为空，请检查文件内容")
@@ -109,7 +106,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"标签文件读取失败：{str(e)}")
 
-    # 显示当前使用的标签列表（方便用户确认）
     st.markdown("#### 当前标签列表")
     st.write(st.session_state["dynamic_species_list"])
 
@@ -193,7 +189,6 @@ if uploaded_files:
         col_main, col_labels = st.columns([3, 1])
 
         with col_main:
-            # 播放当前音频片段
             st.subheader("🎧 播放当前音频片段")
             audio_bytes = io.BytesIO()
             sf.write(audio_bytes, segment_y, sr, format='WAV')
@@ -210,37 +205,44 @@ if uploaded_files:
                 spec_img = generate_spectrogram_image(segment_y, sr)
                 st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
 
-        # 关键修复：从session_state获取最新的标签列表
+        # 获取标签列表
         species_list = st.session_state["dynamic_species_list"]
         with col_labels:
             st.markdown("### 物种标签（可多选）")
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
             
-            # 标签搜索功能
+            # 标签搜索
             search_query = st.text_input("🔍 搜索标签", value="", key=f"search_{current_key_prefix}")
             filtered_species = [label for label in species_list if search_query.lower() in label.lower()]
 
-            # 切换片段时重置复选框状态
+            # 重置标签状态（仅切换片段时）
             if (st.session_state.last_audio_file != audio_file.name
                     or st.session_state.last_seg_idx != seg_idx):
                 for label in species_list:
-                    key = f"label_checkbox_{label}_{current_key_prefix}"
+                    key = f"label_{label}_{current_key_prefix}"  # 简化key命名，避免冲突
                     st.session_state[key] = False
                 st.session_state.last_audio_file = audio_file.name
                 st.session_state.last_seg_idx = seg_idx
 
-            # 渲染筛选后的标签复选框
+            # 渲染标签复选框并收集选中状态（核心修复）
             selected_labels = []
+            st.write("已选标签数：", len(selected_labels))  # 调试用，可删除
             for label in filtered_species:
-                key = f"label_checkbox_{label}_{current_key_prefix}"
+                key = f"label_{label}_{current_key_prefix}"
+                # 确保key在session中存在
                 if key not in st.session_state:
                     st.session_state[key] = False
-                # 保持复选框状态与session同步
+                # 渲染复选框，直接绑定session_state[key]
                 checked = st.checkbox(label, key=key, value=st.session_state[key])
-                if checked != st.session_state[key]:
-                    st.session_state[key] = checked
+                # 实时更新选中状态
                 if checked:
-                    selected_labels.append(label)
+                    if label not in selected_labels:
+                        selected_labels.append(label)
+                else:
+                    if label in selected_labels:
+                        selected_labels.remove(label)
+                # 同步到session_state（关键修复：确保状态被正确保存）
+                st.session_state[key] = checked
 
             # 显示已选标签
             if selected_labels:
@@ -249,43 +251,54 @@ if uploaded_files:
                 st.info("请选择至少一个标签")
 
             # 操作按钮
+            st.markdown("### 🛠️ 操作")
             col_save, col_skip = st.columns(2)
             with col_save:
-                save_clicked = st.button("保存本段标注", key=f"save_btn_{current_key_prefix}")
+                save_clicked = st.button("保存本段标注", key=f"save_{current_key_prefix}")
             with col_skip:
-                skip_clicked = st.button("跳过本段", key=f"skip_btn_{current_key_prefix}")
+                skip_clicked = st.button("跳过本段", key=f"skip_{current_key_prefix}")
 
-        # 保存逻辑
+        # 保存逻辑（核心修复：确保选中标签被正确处理）
         if save_clicked:
+            # 检查是否有选中的标签（修复判断逻辑）
             if not selected_labels:
                 st.warning("❗请先选择至少一个物种标签！")
             else:
-                # 保存音频片段
-                segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
-                segment_path = os.path.join(output_dir, segment_filename)
-                sf.write(segment_path, segment_y, sr)
+                try:
+                    # 保存音频片段
+                    segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
+                    segment_path = os.path.join(output_dir, segment_filename)
+                    sf.write(segment_path, segment_y, sr)
 
-                # 保存标注到CSV
-                entry = {
-                    "filename": audio_file.name,
-                    "segment_index": segment_filename,
-                    "start_time": round(start_sec, 3),
-                    "end_time": round(end_sec, 3),
-                    "labels": ",".join(selected_labels)
-                }
-                st.session_state.annotations.append(entry)
-                df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
-                df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                    # 准备保存到CSV的数据
+                    entry = {
+                        "filename": audio_file.name,
+                        "segment_index": segment_filename,
+                        "start_time": round(start_sec, 3),
+                        "end_time": round(end_sec, 3),
+                        "labels": ",".join(selected_labels)
+                    }
 
-                # 切换到下一段或下一个文件
-                if seg_idx + 1 < total_segments:
-                    st.session_state.segment_info[audio_file.name]["current_seg"] += 1
-                else:
-                    st.session_state.processed_files.add(audio_file.name)
-                    st.session_state.current_index += 1
+                    # 更新标注列表和CSV
+                    st.session_state.annotations.append(entry)
+                    # 处理空的df_old（避免concat错误）
+                    if df_old.empty:
+                        df_combined = pd.DataFrame([entry])
+                    else:
+                        df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
+                    df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-                st.success("标注已保存！")
-                st.rerun()
+                    # 切换到下一段或下一个文件
+                    if seg_idx + 1 < total_segments:
+                        st.session_state.segment_info[audio_file.name]["current_seg"] += 1
+                    else:
+                        st.session_state.processed_files.add(audio_file.name)
+                        st.session_state.current_index += 1
+
+                    st.success("标注已保存！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"保存失败：{str(e)}")  # 显示保存错误原因
 
         if skip_clicked:
             if seg_idx + 1 < total_segments:
@@ -295,7 +308,6 @@ if uploaded_files:
                 st.session_state.current_index += 1
             st.rerun()
 
-    # 所有音频标注完成
     else:
         st.success("🎉 所有上传的音频都已标注完成！")
 
