@@ -117,51 +117,53 @@ def annotation_labels_component(current_segment_key):
 
         # 搜索框
         search_query = st.text_input("🔍 搜索标签（支持中文、拼音首字母、全拼）", "", key=f"search_{current_segment_key}")
+
+        # 生成缓存键
         cache_key = f"{current_segment_key}_{search_query}"
+
+        # 如果缓存中没有，则进行搜索
         if cache_key not in st.session_state.filtered_labels_cache:
-            st.session_state.filtered_labels_cache[cache_key] = [
-                label for label in species_list if search_query.lower() in label.lower()
-            ]
+            filtered_species = []
+            if search_query:
+                search_lower = search_query.lower()
+                for label in species_list:
+                    label_lower = label.lower()
+                    # 检查是否匹配：原文字符、拼音首字母或全拼
+                    if (search_lower in label_lower or
+                            search_lower in get_pinyin_abbr(label) or
+                            search_lower in get_full_pinyin(label)):
+                        filtered_species.append(label)
+            else:
+                filtered_species = species_list.copy()
+
+            st.session_state.filtered_labels_cache[cache_key] = filtered_species
+
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 初始化选中状态
-        if f"selected_labels_{current_segment_key}" not in st.session_state:
-            st.session_state[f"selected_labels_{current_segment_key}"] = set()
+        # 显示搜索结果
+        st.info(f"找到 {len(filtered_species)} 个匹配标签" if search_query else f"共 {len(filtered_species)} 个标签")
 
         # 显示标签选择框
-        current_selections = set()
         for label in filtered_species:
-            # 使用唯一的key生成checkbox
-            selected = st.checkbox(label, key=f"cb_{label}_{current_segment_key}")
-            if selected:
-                current_selections.add(label)
-
-        # 更新选中状态
-        st.session_state[f"selected_labels_{current_segment_key}"] = current_selections
-        st.session_state.current_selected_labels = current_selections
+            key = f"label_{label}_{current_segment_key}"
+            is_selected = label in st.session_state.current_selected_labels
+            if st.checkbox(label, key=key, value=is_selected):
+                st.session_state.current_selected_labels.add(label)
+            else:
+                st.session_state.current_selected_labels.discard(label)
 
         st.markdown("### 已选标签")
-        st.info(f"已选数量：{len(current_selections)}")
-
-        # 显示已选标签并提供删除功能
-        if current_selections:
-            cols = st.columns(4)
-            col_index = 0
-
-            for label in list(current_selections):
-                with cols[col_index]:
-                    # 使用按钮删除标签
-                    if st.button(f"× {label}", key=f"rm_{label}_{current_segment_key}"):
-                        # 通过重新运行来更新状态
-                        st.session_state[f"cb_{label}_{current_segment_key}"] = False
-                        st.experimental_rerun()
-                col_index = (col_index + 1) % 4
+        st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
+        if st.session_state.current_selected_labels:
+            st.success(f"标签：{', '.join(st.session_state.current_selected_labels)}")
         else:
             st.info("尚未选择标签")
 
         st.markdown("### 🛠️ 操作")
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
+
+
 # ======== 音频处理逻辑 =========
 def process_audio():
     audio_state = st.session_state.audio_state
