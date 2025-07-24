@@ -12,57 +12,76 @@ from io import BytesIO
 from PIL import Image
 import uuid
 
-# 确保pinyin库正确导入
+# 确保pinyin库正确导入（必选）
 try:
     from pinyin import pinyin
 except ImportError:
-    st.error("❌ 请安装pinyin库：pip install pinyin")
+    st.error("请先安装pinyin库：pip install pinyin")
     st.stop()
 
 
-# ======== 拼音首字母处理（核心组件） =========
-class PinyinHandler:
-    @staticmethod
-    def get_initial(char):
-        if len(char) != 1:
-            return ""
-        if not '\u4e00' <= char <= '\u9fff':  # 仅处理汉字
-            return ""
-        try:
-            py_result = pinyin(char)
-            if py_result and isinstance(py_result[0], list) and py_result[0]:
-                return py_result[0][0].lower()[0]
-            return ""
-        except:
-            return ""
+# ======== 核心：拼音首字母提取（简化逻辑，确保正确） =========
+def get_pinyin_initial(label):
+    """
+    提取标签的拼音首字母串（如"鸳鸯" → "yy"）
+    逻辑：对每个汉字取第一个拼音的首字母，非汉字忽略
+    """
+    initials = []
+    for char in label:
+        # 只处理汉字（Unicode范围：\u4e00-\u9fff）
+        if '\u4e00' <= char <= '\u9fff':
+            try:
+                # pinyin("鸳") → [['yuan']] → 取首字母'y'
+                py = pinyin(char)[0][0].lower()  # 取第一个拼音并小写
+                initials.append(py[0])  # 取首字母
+            except:
+                # 生僻字转换失败则跳过
+                continue
+    return ''.join(initials)  # 组合成首字母串
 
-    @staticmethod
-    def label_to_initial(label):
-        return ''.join([PinyinHandler.get_initial(c) for c in label if '\u4e00' <= c <= '\u9fff'])
 
-
-# ======== 模糊搜索函数 =========
-def fuzzy_search(labels, query):
+# ======== 核心：搜索匹配（仅保留首字母和字符匹配，确保生效） =========
+def search_labels(labels, query):
+    """
+    搜索逻辑：
+    1. 空查询返回所有标签
+    2. 首字母匹配（如"yy" → "鸳鸯"）
+    3. 字符包含匹配（如"鸳" → "鸳鸯"）
+    """
     if not query:
         return labels
-    query_clean = query.lower().strip()
+    
+    query = query.lower().strip()
     matched = []
     for label in labels:
-        label_initial = PinyinHandler.label_to_initial(label)
+        # 提取首字母串
+        label_initial = get_pinyin_initial(label)
+        # 标签字符（小写）
         label_lower = label.lower()
-        if query_clean == label_initial:
-            matched.append((label, 3))
-        elif query_clean in label_initial:
+        
+        # 规则1：首字母完全匹配（优先级最高）
+        if query == label_initial:
             matched.append((label, 2))
-        elif query_clean in label_lower:
+        # 规则2：首字母包含匹配
+        elif query in label_initial:
             matched.append((label, 1))
+        # 规则3：字符包含匹配
+        elif query in label_lower:
+            matched.append((label, 0))
+    
+    # 按优先级排序，去重后返回
     if matched:
-        unique_matched = {label: prio for label, prio in matched}
-        return sorted(unique_matched.keys(), key=lambda x: -unique_matched[x])
+        # 去重（保留优先级最高的）
+        unique = {}
+        for label, prio in matched:
+            if label not in unique or prio > unique[label]:
+                unique[label] = prio
+        # 按优先级排序
+        return sorted(unique.keys(), key=lambda x: -unique[x])
     return []
 
 
-# ======== 工具函数 =========
+# ======== 工具函数（保持不变） =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
@@ -106,17 +125,16 @@ if "audio_state" not in st.session_state:
         "current_index": 0,
         "segment_info": {},
         "last_audio_file": None,
-        "last_seg_idx": -1,
-        "annotations": []
+        "last_seg_idx": -1
     }
-if "filtered_labels_cache" not in st.session_state:
-    st.session_state.filtered_labels_cache = {}
+if "search_cache" not in st.session_state:
+    st.session_state.search_cache = {}
 
 st.set_page_config(layout="wide")
-st.title("🐸 青蛙音频标注工具")
+st.title("🐸 青蛙音频标注工具（拼音首字母修复版）")
 
 
-# ======== 标签管理组件（确保在调用前定义） =========
+# ======== 标签管理组件 =========
 def label_management_component():
     with st.sidebar:
         st.markdown("### 🏷️ 标签设置")
@@ -126,68 +144,64 @@ def label_management_component():
             if submit_label and label_file:
                 try:
                     species_list = [line.strip() for line in label_file.read().decode("utf-8").split("\n") if line.strip()]
-                    if species_list:
-                        st.session_state["dynamic_species_list"] = species_list
-                        st.success(f"加载成功！共 {len(species_list)} 个标签")
-                        st.rerun()
-                    else:
-                        st.error("标签文件为空")
+                    st.session_state["dynamic_species_list"] = species_list
+                    st.success(f"加载成功！共 {len(species_list)} 个标签")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"错误：{str(e)}")
-        st.markdown("#### 当前标签预览")
-        st.write(st.session_state["dynamic_species_list"][:5] + (["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
+        # 调试：显示标签首字母提取结果（方便排查）
+        if st.session_state["dynamic_species_list"]:
+            st.markdown("#### 标签首字母预览（调试用）")
+            preview = [f"{label} → {get_pinyin_initial(label)}" for label in st.session_state["dynamic_species_list"][:3]]
+            st.write("\n".join(preview) + ("..." if len(st.session_state["dynamic_species_list"]) > 3 else ""))
     return st.session_state["dynamic_species_list"]
 
 
-# ======== 右侧标注标签组件 =========
-def annotation_labels_component(current_segment_key):
-    species_list = st.session_state["dynamic_species_list"]
-    col_labels = st.container()
+# ======== 右侧标注组件（显示首字母，确保匹配可见） =========
+def annotation_component(current_key):
+    labels = st.session_state["dynamic_species_list"]
+    if not labels:
+        st.warning("请先上传标签文件")
+        return None, None
 
-    with col_labels:
-        st.markdown("### 物种标签（可多选）")
-        if not species_list:
-            st.warning("请先在左侧上传标签文件")
-            return None, None
+    # 搜索框
+    query = st.text_input(
+        "🔍 搜索标签（示例：输入'yy'找'鸳鸯'）",
+        "",
+        key=f"query_{current_key}"
+    )
 
-        search_query = st.text_input(
-            "🔍 搜索标签（示例：输入'yy'找'鸳鸯'）",
-            "",
-            key=f"search_{current_segment_key}"
-        )
+    # 缓存搜索结果
+    cache_key = f"{current_key}_{query}"
+    if cache_key not in st.session_state.search_cache:
+        st.session_state.search_cache[cache_key] = search_labels(labels, query)
+    results = st.session_state.search_cache[cache_key]
 
-        cache_key = f"{current_segment_key}_{search_query}"
-        if cache_key not in st.session_state.filtered_labels_cache:
-            st.session_state.filtered_labels_cache[cache_key] = fuzzy_search(
-                species_list,
-                search_query
-            )
-        filtered_species = st.session_state.filtered_labels_cache[cache_key]
+    # 显示匹配信息
+    st.info(f"匹配结果：{len(results)}/{len(labels)} 个标签")
 
-        st.info(f"找到 {len(filtered_species)} 个匹配标签（共 {len(species_list)} 个）")
+    # 标签选择区（带首字母显示）
+    with st.container(height=300):
+        for label in results:
+            initial = get_pinyin_initial(label)
+            # 显示：标签（首字母：xx）
+            display = f"{label}（首字母：{initial}）" if initial else label
+            key = f"label_{label}_{current_key}"
+            checked = label in st.session_state.current_selected_labels
+            if st.checkbox(display, key=key, value=checked):
+                st.session_state.current_selected_labels.add(label)
+            else:
+                st.session_state.current_selected_labels.discard(label)
 
-        with st.container(height=300):
-            for label in filtered_species:
-                label_initial = PinyinHandler.label_to_initial(label)
-                display_text = f"{label}（首字母：{label_initial}）" if label_initial else label
-                
-                key = f"label_{label}_{current_segment_key}"
-                is_selected = label in st.session_state.current_selected_labels
-                if st.checkbox(display_text, key=key, value=is_selected):
-                    st.session_state.current_selected_labels.add(label)
-                else:
-                    st.session_state.current_selected_labels.discard(label)
+    # 已选标签
+    st.markdown("### 已选标签")
+    st.write(f"数量：{len(st.session_state.current_selected_labels)}")
+    if st.session_state.current_selected_labels:
+        st.success(", ".join(st.session_state.current_selected_labels))
 
-        st.markdown("### 已选标签")
-        st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
-        if st.session_state.current_selected_labels:
-            st.success("标签：\n" + ", ".join(st.session_state.current_selected_labels).replace(", ", "\n"))
-        else:
-            st.info("尚未选择标签")
-
-        st.markdown("### 🛠️ 操作")
-        col_save, col_skip = st.columns(2)
-        return col_save, col_skip
+    # 操作按钮
+    col_save, col_skip = st.columns(2)
+    return col_save, col_skip
 
 
 # ======== 音频处理逻辑 =========
@@ -197,144 +211,110 @@ def process_audio():
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
+    # 加载CSV
     try:
-        df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
-            columns=["filename", "segment_index", "start_time", "end_time", "labels"]
+        df = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
+            columns=["filename", "segment", "start", "end", "labels"]
         )
     except:
-        df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
+        df = pd.DataFrame(columns=["filename", "segment", "start", "end", "labels"])
 
+    # 侧边栏：上传和下载
     with st.sidebar:
         st.markdown("### 🎵 音频上传")
-        uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True, key="audio_files")
-        st.markdown("### 📥 下载结果")
+        files = st.file_uploader("上传.wav文件", type="wav", accept_multiple_files=True, key="audios")
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
-                st.download_button("📄 下载CSV", f, "annotations.csv", "text/csv")
-        annotated_paths = []
-        if os.path.exists(csv_path) and "segment_index" in pd.read_csv(csv_path).columns:
-            for _, row in pd.read_csv(csv_path).iterrows():
-                try:
-                    fname = str(row["segment_index"])
-                    if fname and os.path.exists(os.path.join(output_dir, fname)):
-                        annotated_paths.append(os.path.join(output_dir, fname))
-                except:
-                    pass
-        if annotated_paths:
-            with zipfile.ZipFile(zip_buf := BytesIO(), "w") as zf:
-                for p in annotated_paths:
-                    zf.write(p, os.path.basename(p))
-            zip_buf.seek(0)
-            st.download_button("🎵 下载音频片段", zip_buf, "annotated_segments.zip", "application/zip")
+                st.download_button("下载标注结果", f, "annotations.csv")
 
-    if not uploaded_files:
-        st.info("请先上传音频文件")
+    if not files:
+        st.info("请上传音频文件")
         return
 
-    unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
-                                                     audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"])]
+    # 处理当前音频段
+    current_idx = audio_state["current_index"]
+    if current_idx < len(files):
+        file = files[current_idx]
+        y, sr = load_audio(file)
+        total_dur = librosa.get_duration(y=y, sr=sr)
+        total_seg = int(np.ceil(total_dur / 5))
+        seg_idx = audio_state["segment_info"].get(file.name, {"current": 0})["current"]
+        current_key = f"{file.name}_{seg_idx}"
 
-    if audio_state["current_index"] < len(unprocessed):
-        audio_file = unprocessed[audio_state["current_index"]]
-        y, sr = load_audio(audio_file)
-        total_duration = librosa.get_duration(y=y, sr=sr)
-        total_segments = int(np.ceil(total_duration / 5.0))
-        seg_idx = audio_state["segment_info"].get(audio_file.name, {"current_seg": 0})["current_seg"]
-        current_segment_key = f"{audio_file.name}_{seg_idx}"
-
-        if (audio_state["last_audio_file"] != audio_file.name or audio_state["last_seg_idx"] != seg_idx):
+        # 切换段时重置选择
+        if audio_state["last_audio_file"] != file.name or audio_state["last_seg_idx"] != seg_idx:
             st.session_state.current_selected_labels = set()
-            audio_state["last_audio_file"], audio_state["last_seg_idx"] = audio_file.name, seg_idx
+            audio_state["last_audio_file"] = file.name
+            audio_state["last_seg_idx"] = seg_idx
 
-        st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
-        col_main, col_labels = st.columns([3, 1])
+        # 显示当前段信息
+        st.header(f"处理：{file.name}（第 {seg_idx+1}/{total_seg} 段）")
+        col_main, col_annot = st.columns([3, 1])
 
         with col_main:
-            st.subheader("🎧 播放当前片段")
-            start_sec, end_sec = seg_idx * 5.0, min((seg_idx + 1) * 5.0, total_duration)
-            segment_y = y[int(start_sec * sr):int(end_sec * sr)]
-            audio_bytes = BytesIO()
-            sf.write(audio_bytes, segment_y, sr, format='WAV')
-            st.audio(audio_bytes, format="audio/wav")
+            # 音频播放
+            start = seg_idx * 5
+            end = min(start + 5, total_dur)
+            seg_y = y[int(start*sr):int(end*sr)]
+            audio_buf = BytesIO()
+            sf.write(audio_buf, seg_y, sr, format="WAV")
+            st.audio(audio_buf, format="audio/wav")
 
+            # 波形图和频谱图
             col1, col2 = st.columns(2)
             with col1:
-                st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_container_width=True)
+                st.image(generate_waveform_image(seg_y, sr), caption="波形图", use_container_width=True)
             with col2:
-                st.image(generate_spectrogram_image(segment_y, sr), caption="频谱图", use_container_width=True)
+                st.image(generate_spectrogram_image(seg_y, sr), caption="频谱图", use_container_width=True)
 
-        with col_labels:
-            col_save, col_skip = annotation_labels_component(current_segment_key)
+        with col_annot:
+            save_btn, skip_btn = annotation_component(current_key)
 
-            if col_save and col_skip:
-                with col_save:
-                    if st.button("保存本段标注", key=f"save_{current_segment_key}"):
-                        try:
-                            if not st.session_state.current_selected_labels:
-                                st.warning("❗请至少选择一个标签")
-                                return
+            # 保存按钮
+            if save_btn.button("保存标注", key=f"save_{current_key}"):
+                if not st.session_state.current_selected_labels:
+                    st.warning("请至少选择一个标签")
+                    return
+                try:
+                    # 保存音频段
+                    seg_name = f"{file.name}_seg{seg_idx}_{uuid.uuid4().hex[:6]}.wav"
+                    sf.write(os.path.join(output_dir, seg_name), seg_y, sr)
+                    # 保存到CSV
+                    new_row = {
+                        "filename": file.name,
+                        "segment": seg_name,
+                        "start": round(start, 2),
+                        "end": round(end, 2),
+                        "labels": ",".join(st.session_state.current_selected_labels)
+                    }
+                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                    # 更新状态
+                    if seg_idx + 1 < total_seg:
+                        audio_state["segment_info"][file.name] = {"current": seg_idx + 1}
+                    else:
+                        audio_state["processed_files"].add(file.name)
+                        audio_state["current_index"] += 1
+                    st.success("保存成功！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"保存失败：{str(e)}")
 
-                            base_name = os.path.splitext(audio_file.name)[0]
-                            unique_id = uuid.uuid4().hex[:8]
-                            segment_filename = f"{base_name}_seg{seg_idx}_{unique_id}.wav"
-                            segment_path = os.path.join(output_dir, segment_filename)
-
-                            with sf.SoundFile(segment_path, 'w', samplerate=sr, channels=1) as f:
-                                f.write(segment_y)
-
-                            clean_labels = [label.replace("/", "").replace("\\", "") for label in st.session_state.current_selected_labels]
-                            entry = {
-                                "filename": audio_file.name,
-                                "segment_index": segment_filename,
-                                "start_time": round(start_sec, 3),
-                                "end_time": round(end_sec, 3),
-                                "labels": ",".join(clean_labels)
-                            }
-
-                            new_df = pd.DataFrame([entry])
-                            if os.path.exists(csv_path):
-                                existing_df = pd.read_csv(csv_path)
-                                combined_df = pd.concat([existing_df, new_df], ignore_index=True)
-                            else:
-                                combined_df = new_df
-
-                            combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
-
-                            if audio_file.name not in audio_state["segment_info"]:
-                                audio_state["segment_info"][audio_file.name] = {"current_seg": 0, "total_seg": total_segments}
-
-                            if seg_idx + 1 < total_segments:
-                                audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-                            else:
-                                audio_state["processed_files"].add(audio_file.name)
-                                audio_state["current_index"] += 1
-
-                            st.session_state.audio_state = audio_state
-                            st.success(f"成功保存标注！文件: {segment_filename}")
-                            st.balloons()
-                            st.rerun()
-
-                        except Exception as e:
-                            st.error(f"保存失败: {str(e)}")
-
-                with col_skip:
-                    if st.button("跳过本段", key=f"skip_{current_segment_key}"):
-                        if seg_idx + 1 < total_segments:
-                            audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-                        else:
-                            audio_state["processed_files"].add(audio_file.name)
-                            audio_state["current_index"] += 1
-                        st.rerun()
+            # 跳过按钮
+            if skip_btn.button("跳过", key=f"skip_{current_key}"):
+                if seg_idx + 1 < total_seg:
+                    audio_state["segment_info"][file.name] = {"current": seg_idx + 1}
+                else:
+                    audio_state["current_index"] += 1
+                st.rerun()
 
     else:
-        st.success("🎉 所有音频标注完成！")
+        st.success("所有音频处理完成！")
 
     st.session_state.audio_state = audio_state
 
 
-# ======== 主流程（确保函数调用在定义之后） =========
+# ======== 主流程 =========
 if __name__ == "__main__":
-    # 确保label_management_component已定义再调用
     label_management_component()
     process_audio()
