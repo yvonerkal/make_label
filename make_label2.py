@@ -13,10 +13,12 @@ from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin  # 新增拼音处理库
 
+
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
+
 
 @st.cache_data(show_spinner=False)
 def generate_spectrogram_image(y, sr):
@@ -31,6 +33,7 @@ def generate_spectrogram_image(y, sr):
     plt.close(fig)
     return Image.open(buf)
 
+
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -43,14 +46,17 @@ def generate_waveform_image(y, sr):
     plt.close(fig)
     return Image.open(buf)
 
+
 # 新增拼音处理函数
 def get_pinyin_abbr(text):
     """获取拼音首字母缩写"""
     return ''.join([p[0] for p in lazy_pinyin(text) if p])
 
+
 def get_full_pinyin(text):
     """获取完整拼音（不带声调）"""
     return ''.join(lazy_pinyin(text))
+
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -71,6 +77,7 @@ if "filtered_labels_cache" not in st.session_state:
 
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
+
 
 # ======== 标签管理组件 =========
 def label_management_component():
@@ -96,6 +103,7 @@ def label_management_component():
             ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
     return st.session_state["dynamic_species_list"]
 
+
 # ======== 右侧标注标签组件 =========
 def annotation_labels_component(current_segment_key):
     species_list = st.session_state["dynamic_species_list"]
@@ -109,45 +117,45 @@ def annotation_labels_component(current_segment_key):
 
         # 搜索框
         search_query = st.text_input("🔍 搜索标签（支持中文、拼音首字母、全拼）", "", key=f"search_{current_segment_key}")
-        
-        # 生成缓存键
         cache_key = f"{current_segment_key}_{search_query}"
-        
-        # 如果缓存中没有，则进行搜索
         if cache_key not in st.session_state.filtered_labels_cache:
-            filtered_species = []
-            if search_query:
-                search_lower = search_query.lower()
-                for label in species_list:
-                    label_lower = label.lower()
-                    # 检查是否匹配：原文字符、拼音首字母或全拼
-                    if (search_lower in label_lower or 
-                        search_lower in get_pinyin_abbr(label) or
-                        search_lower in get_full_pinyin(label)):
-                        filtered_species.append(label)
-            else:
-                filtered_species = species_list.copy()
-            
-            st.session_state.filtered_labels_cache[cache_key] = filtered_species
-        
+            st.session_state.filtered_labels_cache[cache_key] = [
+                label for label in species_list if search_query.lower() in label.lower()
+            ]
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 显示搜索结果
-        st.info(f"找到 {len(filtered_species)} 个匹配标签" if search_query else f"共 {len(filtered_species)} 个标签")
-        
-        # 显示标签选择框
+        # 显示标签选择框并同步状态
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
             is_selected = label in st.session_state.current_selected_labels
             if st.checkbox(label, key=key, value=is_selected):
-                st.session_state.current_selected_labels.add(label)
+                if label not in st.session_state.current_selected_labels:
+                    st.session_state.current_selected_labels.add(label)
             else:
-                st.session_state.current_selected_labels.discard(label)
+                if label in st.session_state.current_selected_labels:
+                    st.session_state.current_selected_labels.discard(label)
 
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
+
+        # 显示已选标签并提供删除功能
         if st.session_state.current_selected_labels:
-            st.success(f"标签：{', '.join(st.session_state.current_selected_labels)}")
+            cols = st.columns(4)  # 每行显示4个标签
+            col_index = 0
+
+            # 创建已选标签的副本以避免修改迭代中的集合
+            selected_labels = list(st.session_state.current_selected_labels)
+
+            for label in selected_labels:
+                with cols[col_index]:
+                    # 使用独特的key确保按钮唯一性
+                    if st.button(f"× {label}", key=f"remove_{label}_{current_segment_key}"):
+                        # 从已选集合中移除
+                        st.session_state.current_selected_labels.discard(label)
+                        # 更新上方复选框状态
+                        st.session_state[f"label_{label}_{current_segment_key}"] = False
+                        st.rerun()
+                col_index = (col_index + 1) % 4
         else:
             st.info("尚未选择标签")
 
@@ -319,6 +327,7 @@ def process_audio():
         st.success("🎉 所有音频标注完成！")
 
     st.session_state.audio_state = audio_state
+
 
 # ======== 主流程 =========
 if __name__ == "__main__":
