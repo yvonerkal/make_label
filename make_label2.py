@@ -338,7 +338,7 @@ def process_audio():
 
     unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
                                                      audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"]]
+                                                     audio_state["segment_info"][f.name]["total_seg"])]
 
     if audio_state["current_index"] < len(unprocessed):
         audio_file = unprocessed[audio_state["current_index"]]
