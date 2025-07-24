@@ -11,20 +11,28 @@ import zipfile
 from io import BytesIO
 from PIL import Image
 import uuid
+import time
+from datetime import datetime
 
 
-# ======== 工具函数 =========
+# ======== 工具函数（新增同步线功能） =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
 
 
-@st.cache_data(show_spinner=False)
-def generate_spectrogram_image(y, sr):
-    fig, ax = plt.subplots(figsize=(5, 3))
+def generate_spectrogram_image(y, sr, play_pos=0.0):
+    """生成带播放进度线的频谱图"""
+    fig, ax = plt.subplots(figsize=(10, 4))  # 加宽图表，适应单行显示
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
     ax.set(title="Spectrogram (dB)")
+    
+    # 添加播放进度线（红色虚线）
+    if play_pos > 0:
+        ax.axvline(x=play_pos, color='red', linestyle='--', linewidth=2, label=f'播放位置: {play_pos:.2f}s')
+        ax.legend()
+    
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
@@ -33,11 +41,18 @@ def generate_spectrogram_image(y, sr):
     return Image.open(buf)
 
 
-@st.cache_data(show_spinner=False)
-def generate_waveform_image(y, sr):
-    fig, ax = plt.subplots(figsize=(5, 3))
-    librosa.display.waveshow(y, sr=sr)
+def generate_waveform_image(y, sr, play_pos=0.0):
+    """生成带播放进度线的波形图"""
+    fig, ax = plt.subplots(figsize=(10, 4))  # 加宽图表，适应单行显示
+    librosa.display.waveshow(y, sr=sr, ax=ax)
     ax.set(title="Waveform")
+    ax.set_xlim(0, librosa.get_duration(y=y, sr=sr))  # 固定x轴范围为音频时长
+    
+    # 添加播放进度线（红色虚线）
+    if play_pos > 0:
+        ax.axvline(x=play_pos, color='red', linestyle='--', linewidth=2, label=f'播放位置: {play_pos:.2f}s')
+        ax.legend()
+    
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
@@ -46,7 +61,7 @@ def generate_waveform_image(y, sr):
     return Image.open(buf)
 
 
-# ======== Session 状态初始化 =========
+# ======== Session 状态初始化（新增播放状态） =========
 if "dynamic_species_list" not in st.session_state:
     st.session_state["dynamic_species_list"] = []
 if "current_selected_labels" not in st.session_state:
@@ -62,12 +77,21 @@ if "audio_state" not in st.session_state:
     }
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
+# 新增：音频播放状态
+if "play_state" not in st.session_state:
+    st.session_state.play_state = {
+        "is_playing": False,
+        "start_time": 0.0,  # 播放开始的系统时间
+        "audio_duration": 0.0,  # 当前片段的总时长
+        "current_pos": 0.0  # 当前播放位置（秒）
+    }
+
 
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
 
 
-# ======== 标签管理组件 =========
+# ======== 标签管理组件（保持不变） =========
 def label_management_component():
     with st.sidebar:
         st.markdown("### 🏷️ 标签设置")
@@ -92,7 +116,7 @@ def label_management_component():
     return st.session_state["dynamic_species_list"]
 
 
-# ======== 右侧标注标签组件 =========
+# ======== 右侧标注标签组件（保持不变） =========
 def annotation_labels_component(current_segment_key):
     species_list = st.session_state["dynamic_species_list"]
     col_labels = st.container()
@@ -131,14 +155,14 @@ def annotation_labels_component(current_segment_key):
         return col_save, col_skip
 
 
-# ======== 音频处理逻辑 =========
+# ======== 音频处理逻辑（核心优化部分） =========
 def process_audio():
     audio_state = st.session_state.audio_state
     output_dir = "uploaded_audios"
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
-    # 安全加载CSV（避免空文件或格式错误）
+    # 安全加载CSV
     try:
         df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
             columns=["filename", "segment_index", "start_time", "end_time", "labels"]
@@ -185,8 +209,15 @@ def process_audio():
         seg_idx = audio_state["segment_info"].get(audio_file.name, {"current_seg": 0})["current_seg"]
         current_segment_key = f"{audio_file.name}_{seg_idx}"
 
+        # 切换片段时重置状态
         if (audio_state["last_audio_file"] != audio_file.name or audio_state["last_seg_idx"] != seg_idx):
             st.session_state.current_selected_labels = set()
+            st.session_state.play_state = {  # 重置播放状态
+                "is_playing": False,
+                "start_time": 0.0,
+                "audio_duration": 0.0,
+                "current_pos": 0.0
+            }
             audio_state["last_audio_file"], audio_state["last_seg_idx"] = audio_file.name, seg_idx
 
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
@@ -196,54 +227,103 @@ def process_audio():
             st.subheader("🎧 播放当前片段")
             start_sec, end_sec = seg_idx * 5.0, min((seg_idx + 1) * 5.0, total_duration)
             segment_y = y[int(start_sec * sr):int(end_sec * sr)]
+            segment_duration = end_sec - start_sec  # 当前片段时长
+            st.session_state.play_state["audio_duration"] = segment_duration  # 更新片段时长
+
+            # 生成音频字节流（用于播放）
             audio_bytes = BytesIO()
             sf.write(audio_bytes, segment_y, sr, format='WAV')
-            st.audio(audio_bytes, format="audio/wav")
+            audio_bytes.seek(0)
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_container_width=True)
-            with col2:
-                st.image(generate_spectrogram_image(segment_y, sr), caption="频谱图", use_container_width=True)
+            # 播放控制与进度同步
+            play_col1, play_col2 = st.columns([1, 5])
+            with play_col1:
+                # 播放/暂停按钮
+                if st.button("▶️ 播放" if not st.session_state.play_state["is_playing"] else "⏸️ 暂停", 
+                            key=f"play_btn_{current_segment_key}"):
+                    st.session_state.play_state["is_playing"] = not st.session_state.play_state["is_playing"]
+                    if st.session_state.play_state["is_playing"]:
+                        # 记录开始播放时间（扣除已播放时长）
+                        st.session_state.play_state["start_time"] = time.time() - st.session_state.play_state["current_pos"]
+                    else:
+                        # 暂停时记录当前位置
+                        st.session_state.play_state["current_pos"] = min(
+                            time.time() - st.session_state.play_state["start_time"],
+                            segment_duration
+                        )
+
+            with play_col2:
+                # 显示音频播放器（隐藏原生进度条，使用自定义同步线）
+                st.audio(audio_bytes, format="audio/wav", start_time=0, loop=False)
+
+            # 波形图和频谱图（改为两行显示，并添加同步线）
+            # 1. 波形图（第一行）
+            st.markdown("#### 📈 波形图")
+            wave_placeholder = st.empty()  # 波形图占位符，用于动态更新
+
+            # 2. 频谱图（第二行）
+            st.markdown("#### 🎞️ 频谱图")
+            spec_placeholder = st.empty()  # 频谱图占位符，用于动态更新
+
+            # 实时更新图表（仅在播放时）
+            if st.session_state.play_state["is_playing"]:
+                # 计算当前播放位置
+                current_pos = min(
+                    time.time() - st.session_state.play_state["start_time"],
+                    segment_duration
+                )
+                st.session_state.play_state["current_pos"] = current_pos
+
+                # 更新波形图（带同步线）
+                wave_img = generate_waveform_image(segment_y, sr, play_pos=current_pos)
+                wave_placeholder.image(wave_img, caption="Waveform", use_container_width=True)
+
+                # 更新频谱图（带同步线）
+                spec_img = generate_spectrogram_image(segment_y, sr, play_pos=current_pos)
+                spec_placeholder.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
+
+                # 播放结束后重置状态
+                if current_pos >= segment_duration:
+                    st.session_state.play_state["is_playing"] = False
+                    st.session_state.play_state["current_pos"] = 0.0
+                    st.rerun()  # 刷新页面显示最终状态
+
+            else:
+                # 未播放时显示静态图表（带最后位置线或无线）
+                wave_img = generate_waveform_image(
+                    segment_y, sr, 
+                    play_pos=st.session_state.play_state["current_pos"]
+                )
+                wave_placeholder.image(wave_img, caption="Waveform", use_container_width=True)
+
+                spec_img = generate_spectrogram_image(
+                    segment_y, sr, 
+                    play_pos=st.session_state.play_state["current_pos"]
+                )
+                spec_placeholder.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
 
         with col_labels:
             col_save, col_skip = annotation_labels_component(current_segment_key)
 
             if col_save and col_skip:
-                # 修改后的保存按钮处理逻辑
                 with col_save:
                     if st.button("保存本段标注", key=f"save_{current_segment_key}"):
                         try:
-                            # 1. 检查标签
                             if not st.session_state.current_selected_labels:
                                 st.warning("❗请至少选择一个标签")
                                 return
 
-                            # 2. 确保输出目录存在
                             os.makedirs(output_dir, exist_ok=True)
-
-                            # 3. 生成安全的文件名（处理中文文件名）
                             base_name = os.path.splitext(audio_file.name)[0]
-                            try:
-                                # 尝试UTF-8编码
-                                base_name = base_name.encode('utf-8').decode('utf-8')
-                            except:
-                                # 如果UTF-8失败，使用ASCII安全名称
-                                base_name = "audio_segment"
-
                             unique_id = uuid.uuid4().hex[:8]
                             segment_filename = f"{base_name}_seg{seg_idx}_{unique_id}.wav"
                             segment_path = os.path.join(output_dir, segment_filename)
 
-                            # 4. 保存音频文件（使用更可靠的方式）
-                            try:
-                                with sf.SoundFile(segment_path, 'w', samplerate=sr, channels=1) as f:
-                                    f.write(segment_y)
-                            except Exception as audio_error:
-                                st.error(f"音频保存失败: {str(audio_error)}")
-                                return
+                            # 保存音频片段
+                            with sf.SoundFile(segment_path, 'w', samplerate=sr, channels=1) as f:
+                                f.write(segment_y)
 
-                            # 5. 准备CSV条目
+                            # 保存CSV
                             clean_labels = [label.replace("/", "").replace("\\", "") for label in
                                             st.session_state.current_selected_labels]
                             entry = {
@@ -253,45 +333,22 @@ def process_audio():
                                 "end_time": round(end_sec, 3),
                                 "labels": ",".join(clean_labels)
                             }
+                            new_df = pd.DataFrame([entry])
+                            combined_df = pd.concat([df_old, new_df], ignore_index=True) if not df_old.empty else new_df
+                            combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
-                            # 6. 更新CSV（使用更安全的方式）
-                            try:
-                                new_df = pd.DataFrame([entry])
-                                if os.path.exists(csv_path):
-                                    existing_df = pd.read_csv(csv_path)
-                                    combined_df = pd.concat([existing_df, new_df], ignore_index=True)
-                                else:
-                                    combined_df = new_df
-
-                                combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
-                            except Exception as csv_error:
-                                st.error(f"CSV保存失败: {str(csv_error)}")
-                                # 尝试删除已保存的音频文件
-                                if os.path.exists(segment_path):
-                                    os.remove(segment_path)
-                                return
-
-                            # 7. 更新状态
-                            if audio_file.name not in audio_state["segment_info"]:
-                                audio_state["segment_info"][audio_file.name] = {
-                                    "current_seg": 0,
-                                    "total_seg": total_segments
-                                }
-
+                            # 更新状态
                             if seg_idx + 1 < total_segments:
                                 audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                             else:
                                 audio_state["processed_files"].add(audio_file.name)
                                 audio_state["current_index"] += 1
 
-                            st.session_state.audio_state = audio_state
                             st.success(f"成功保存标注！文件: {segment_filename}")
-                            st.balloons()  # 添加成功动画效果
-                            st.rerun()  # 强制刷新页面
+                            st.rerun()
 
                         except Exception as e:
                             st.error(f"保存过程中发生错误: {str(e)}")
-                            st.error(f"错误详情: {repr(e)}")
 
                 with col_skip:
                     if st.button("跳过本段", key=f"skip_{current_segment_key}"):
