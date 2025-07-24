@@ -89,9 +89,17 @@ with st.sidebar:
     # 上传标签文件
     st.markdown("### 🏷️ 标签设置")
     label_file = st.file_uploader("上传标签文件（每行一个标签）", type=["txt"])
+
     if label_file:
-        species_list = [line.strip() for line in label_file.readlines() if line.strip()]
-        st.session_state["dynamic_species_list"] = species_list
+        # 关键修改：对每一行进行 decode 解码
+        try:
+            lines = label_file.readlines()
+            species_list = [line.decode("utf-8").strip() for line in lines if line.strip()]
+            st.session_state["dynamic_species_list"] = species_list
+            st.rerun()
+        except Exception as e:
+            st.error(f"标签文件读取失败：{e}")
+            species_list = []
     elif "dynamic_species_list" in st.session_state:
         species_list = st.session_state["dynamic_species_list"]
     else:
