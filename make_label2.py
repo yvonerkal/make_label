@@ -147,6 +147,7 @@ def annotation_labels_component(current_segment_key):
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
             is_selected = label in st.session_state.current_selected_labels
+            # 使用回调函数更新选中状态
             if st.checkbox(label, key=key, value=is_selected):
                 st.session_state.current_selected_labels.add(label)
             else:
@@ -154,8 +155,19 @@ def annotation_labels_component(current_segment_key):
 
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
+        
+        # 已选标签显示及删除功能
         if st.session_state.current_selected_labels:
-            st.success(f"标签：{', '.join(st.session_state.current_selected_labels)}")
+            # 使用水平布局显示已选标签，每个标签带删除按钮
+            cols = st.columns(len(st.session_state.current_selected_labels))
+            for i, label in enumerate(st.session_state.current_selected_labels):
+                with cols[i]:
+                    # 显示标签和删除按钮
+                    if st.button(f"❌ {label}", key=f"remove_{label}_{current_segment_key}", 
+                                help=f"删除 {label}"):
+                        # 从选中集合中移除标签
+                        st.session_state.current_selected_labels.discard(label)
+                        st.rerun()  # 重新运行以更新界面状态
         else:
             st.info("尚未选择标签")
 
