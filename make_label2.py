@@ -8,13 +8,48 @@ import pandas as pd
 import os
 import io
 import zipfile
-import re  # 新增：用于模糊搜索的正则处理
+import re
 from io import BytesIO
 from PIL import Image
 import uuid
 
 
-# ======== 工具函数（保持不变） =========
+# ======== 核心：内置拼音首字母转换（无需额外依赖） =========
+class PinyinConverter:
+    """简易拼音首字母转换工具，支持常用中文字符"""
+    # 拼音首字母映射表（精简版，覆盖常用汉字）
+    INITIALS = {
+        'a': 'a', 'b': 'b', 'c': 'c', 'd': 'd', 'e': 'e', 'f': 'f', 'g': 'g',
+        'h': 'h', 'i': 'i', 'j': 'j', 'k': 'k', 'l': 'l', 'm': 'm', 'n': 'n',
+        'o': 'o', 'p': 'p', 'q': 'q', 'r': 'r', 's': 's', 't': 't', 'u': 'u',
+        'v': 'v', 'w': 'w', 'x': 'x', 'y': 'y', 'z': 'z',
+        # 常用汉字首字母（示例，可根据需要扩展）
+        '一': 'y', '乙': 'y', '二': 'e', '三': 's', '四': 's', '五': 'w',
+        '六': 'l', '七': 'q', '八': 'b', '九': 'j', '十': 's',
+        '牛': 'n', '蛙': 'w', '青': 'q', '蛙': 'w', '田': 't', '鸡': 'j',
+        '蛇': 's', '狗': 'g', '猪': 'z', '猫': 'm', '虎': 'h', '龙': 'l',
+        '鸟': 'n', '鱼': 'y', '虫': 'c', '鼠': 's', '兔': 't', '马': 'm',
+        '羊': 'y', '猴': 'h', '熊': 'x', '鹿': 'l', '狼': 'l', '豹': 'b'
+    }
+
+    @classmethod
+    def get_initial(cls, char):
+        """获取单个字符的拼音首字母（小写）"""
+        if len(char) != 1:
+            return ''  # 非单个字符返回空
+        # 字母直接返回小写
+        if char.isalpha():
+            return char.lower()
+        # 汉字从映射表获取，无对应则返回空
+        return cls.INITIALS.get(char, '')
+
+    @classmethod
+    def get_label_initial(cls, label):
+        """获取标签的拼音首字母字符串（如"牛蛙" → "nw"）"""
+        return ''.join([cls.get_initial(c) for c in label])
+
+
+# ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
@@ -47,42 +82,34 @@ def generate_waveform_image(y, sr):
     return Image.open(buf)
 
 
-# ======== 新增：模糊搜索工具函数 =========
+# ======== 模糊搜索函数（强化拼音首字母匹配） =========
 def fuzzy_search(labels, query):
     """
-    模糊搜索标签，支持：
-    1. 包含查询字符（不区分大小写）
-    2. 拼音首字母匹配（如输入"nww"匹配"牛蛙蛙"）
-    3. 部分字符匹配（如输入"牛蛙"匹配"牛蛙_亚种A"）
+    增强版模糊搜索，优先匹配：
+    1. 标签包含查询字符串（不区分大小写）
+    2. 标签拼音首字母包含查询字符串（如"nw"匹配"牛蛙"）
+    3. 查询字符串是标签的子序列（如"牛亚"匹配"牛蛙_亚种A"）
     """
     if not query:
-        return labels  # 空查询返回所有标签
+        return labels
     
     query_lower = query.lower()
     matched = []
     
     for label in labels:
         label_lower = label.lower()
-        
-        # 规则1：标签包含查询字符串（不区分大小写）
+        # 规则1：完全包含匹配（优先级最高）
         if query_lower in label_lower:
             matched.append(label)
             continue
         
-        # 规则2：拼音首字母匹配（简单版，适用于纯中文标签）
-        # 提取标签每个字符的首字母（需安装pinyin库：pip install pinyin）
-        try:
-            from pinyin import pinyin  # 动态导入，避免未安装时出错
-            # 生成标签的拼音首字母字符串（如"牛蛙" → "nw"）
-            label_initial = ''.join([p[0][0].lower() for p in pinyin(label) if p[0]])
-            if query_lower in label_initial:
-                matched.append(label)
-                continue
-        except ImportError:
-            # 未安装pinyin库则跳过该规则
-            pass
+        # 规则2：拼音首字母匹配（使用内置转换器）
+        label_initial = PinyinConverter.get_label_initial(label)
+        if query_lower in label_initial:
+            matched.append(label)
+            continue
         
-        # 规则3：查询字符串是标签的子序列（如"牛亚"匹配"牛蛙_亚种A"）
+        # 规则3：子序列匹配（如"牛亚"匹配"牛蛙_亚种A"）
         it = iter(label_lower)
         if all(c in it for c in query_lower):
             matched.append(label)
@@ -91,7 +118,7 @@ def fuzzy_search(labels, query):
     return matched
 
 
-# ======== Session 状态初始化（保持不变） =========
+# ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
     st.session_state["dynamic_species_list"] = []
 if "current_selected_labels" not in st.session_state:
@@ -109,10 +136,10 @@ if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
 
 st.set_page_config(layout="wide")
-st.title("🐸 青蛙音频标注工具")
+st.title("🐸 青蛙音频标注工具（带拼音首字母搜索）")
 
 
-# ======== 标签管理组件（保持不变） =========
+# ======== 标签管理组件 =========
 def label_management_component():
     with st.sidebar:
         st.markdown("### 🏷️ 标签设置")
@@ -137,7 +164,7 @@ def label_management_component():
     return st.session_state["dynamic_species_list"]
 
 
-# ======== 右侧标注标签组件（优化模糊搜索） =========
+# ======== 右侧标注标签组件（强化搜索功能） =========
 def annotation_labels_component(current_segment_key):
     species_list = st.session_state["dynamic_species_list"]
     col_labels = st.container()
@@ -148,40 +175,43 @@ def annotation_labels_component(current_segment_key):
             st.warning("请先在左侧上传标签文件")
             return None, None
 
-        # 优化：模糊搜索输入框
+        # 模糊搜索框（支持拼音首字母）
         search_query = st.text_input(
-            "🔍 模糊搜索标签（支持拼音首字母、部分匹配）", 
+            "🔍 搜索标签（支持拼音首字母，如输入'nw'匹配'牛蛙'）", 
             "", 
             key=f"search_{current_segment_key}"
         )
 
-        # 优化：使用模糊搜索函数过滤标签
+        # 缓存搜索结果
         cache_key = f"{current_segment_key}_{search_query}"
         if cache_key not in st.session_state.filtered_labels_cache:
-            # 调用模糊搜索函数
             st.session_state.filtered_labels_cache[cache_key] = fuzzy_search(
                 species_list, 
                 search_query
             )
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 显示匹配结果数量
-        st.info(f"找到 {len(filtered_species)} 个匹配标签（共 {len(species_list)} 个）")
+        # 显示匹配信息
+        st.info(f"找到 {len(filtered_species)} 个匹配标签（总标签数：{len(species_list)}）")
 
-        # 优化：标签显示区域添加滚动条（标签过多时方便浏览）
-        with st.container(height=300):  # 固定高度，超出部分滚动
+        # 带滚动条的标签选择区
+        with st.container(height=300):
             for label in filtered_species:
+                # 显示标签及其拼音首字母（辅助用户理解匹配逻辑）
+                label_initial = PinyinConverter.get_label_initial(label)
+                display_text = f"{label}（首字母：{label_initial}）" if label_initial else label
+                
                 key = f"label_{label}_{current_segment_key}"
                 is_selected = label in st.session_state.current_selected_labels
-                if st.checkbox(label, key=key, value=is_selected):
+                if st.checkbox(display_text, key=key, value=is_selected):
                     st.session_state.current_selected_labels.add(label)
                 else:
                     st.session_state.current_selected_labels.discard(label)
 
+        # 已选标签展示
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         if st.session_state.current_selected_labels:
-            # 优化：已选标签换行显示，避免过长
             st.success("标签：\n" + ", ".join(st.session_state.current_selected_labels).replace(", ", "\n"))
         else:
             st.info("尚未选择标签")
@@ -191,14 +221,13 @@ def annotation_labels_component(current_segment_key):
         return col_save, col_skip
 
 
-# ======== 音频处理逻辑（保持不变） =========
+# ======== 音频处理逻辑 =========
 def process_audio():
     audio_state = st.session_state.audio_state
     output_dir = "uploaded_audios"
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
-    # 安全加载CSV（避免空文件或格式错误）
     try:
         df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
             columns=["filename", "segment_index", "start_time", "end_time", "labels"]
