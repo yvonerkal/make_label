@@ -167,10 +167,7 @@ SEGMENT_DURATION = 5.0  # 每段时长（秒）
 
 
 if uploaded_files:
-    # 🔄 从 session 中获取标签列表（确保和侧边栏上传行为一致）
-    species_list = st.session_state.get("dynamic_species_list", [
-        "北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍", "泽蛙", "其他"
-    ])
+    
 
     unprocessed = [f for f in uploaded_files if not is_fully_annotated(f)]
 
@@ -226,7 +223,10 @@ if uploaded_files:
                 spec_img = generate_spectrogram_image(segment_y, sr)
                 st.image(spec_img, caption="Spectrogram (dB)", use_container_width=True)
 
-
+        # 🔄 从 session 中获取标签列表（确保和侧边栏上传行为一致）
+        species_list = st.session_state.get("dynamic_species_list", [
+        "北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍", "泽蛙", "其他"
+    ])
         with col_labels:  # 右侧区域：标签选择 + 操作按钮
             st.markdown("### 物种标签（可多选）")  # 修复了标题格式
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
