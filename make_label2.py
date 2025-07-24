@@ -9,6 +9,7 @@ import os
 import io
 import zipfile
 from io import BytesIO
+from PIL import Image  # 导入PIL的Image类，用于处理图片
 
 
 # ======== 工具函数 =========
