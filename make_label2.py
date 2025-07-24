@@ -11,7 +11,7 @@ import zipfile
 from io import BytesIO
 from PIL import Image
 import uuid
-from pypinyin import lazy_pinyin  # 新增拼音处理库
+from pypinyin import lazy_pinyin
 
 
 # ======== 工具函数 =========
@@ -28,7 +28,7 @@ def generate_spectrogram_image(y, sr):
     ax.set(title="Spectrogram (dB)")
     fig.tight_layout()
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")  # 降低dpi减少生成时间
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
@@ -41,20 +41,17 @@ def generate_waveform_image(y, sr):
     ax.set(title="Waveform")
     fig.tight_layout()
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")  # 降低dpi减少生成时间
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
 
 
-# 新增拼音处理函数
 def get_pinyin_abbr(text):
-    """获取拼音首字母缩写"""
     return ''.join([p[0] for p in lazy_pinyin(text) if p])
 
 
 def get_full_pinyin(text):
-    """获取完整拼音（不带声调）"""
     return ''.join(lazy_pinyin(text))
 
 
@@ -104,6 +101,12 @@ def label_management_component():
     return st.session_state["dynamic_species_list"]
 
 
+# ======== 标签删除回调函数（关键优化）=========
+def remove_label(label):
+    """通过回调函数删除标签，避免全量rerun"""
+    st.session_state.current_selected_labels.discard(label)
+
+
 # ======== 右侧标注标签组件 =========
 def annotation_labels_component(current_segment_key):
     species_list = st.session_state["dynamic_species_list"]
@@ -121,21 +124,19 @@ def annotation_labels_component(current_segment_key):
         # 生成缓存键
         cache_key = f"{current_segment_key}_{search_query}"
 
-        # 如果缓存中没有，则进行搜索
+        # 缓存搜索结果
         if cache_key not in st.session_state.filtered_labels_cache:
             filtered_species = []
             if search_query:
                 search_lower = search_query.lower()
                 for label in species_list:
                     label_lower = label.lower()
-                    # 检查是否匹配：原文字符、拼音首字母或全拼
                     if (search_lower in label_lower or
                             search_lower in get_pinyin_abbr(label) or
                             search_lower in get_full_pinyin(label)):
                         filtered_species.append(label)
             else:
                 filtered_species = species_list.copy()
-
             st.session_state.filtered_labels_cache[cache_key] = filtered_species
 
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
@@ -147,7 +148,6 @@ def annotation_labels_component(current_segment_key):
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
             is_selected = label in st.session_state.current_selected_labels
-            # 使用回调函数更新选中状态
             if st.checkbox(label, key=key, value=is_selected):
                 st.session_state.current_selected_labels.add(label)
             else:
@@ -156,18 +156,20 @@ def annotation_labels_component(current_segment_key):
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         
-        # 已选标签显示及删除功能
+        # 已选标签显示及删除功能（优化核心）
         if st.session_state.current_selected_labels:
-            # 使用水平布局显示已选标签，每个标签带删除按钮
-            cols = st.columns(len(st.session_state.current_selected_labels))
+            # 使用流式布局避免标签过多导致换行问题
+            cols = st.columns(len(st.session_state.current_selected_labels), gap="small")
             for i, label in enumerate(st.session_state.current_selected_labels):
                 with cols[i]:
-                    # 显示标签和删除按钮
-                    if st.button(f"❌ {label}", key=f"remove_{label}_{current_segment_key}", 
-                                help=f"删除 {label}"):
-                        # 从选中集合中移除标签
-                        st.session_state.current_selected_labels.discard(label)
-                        st.rerun()  # 重新运行以更新界面状态
+                    # 关键优化：使用on_click回调函数删除标签，替代st.rerun()
+                    st.button(
+                        f"❌ {label}",
+                        key=f"remove_{label}_{current_segment_key}",
+                        help=f"删除 {label}",
+                        on_click=remove_label,  # 点击时触发删除函数
+                        args=(label,)  # 传递要删除的标签
+                    )
         else:
             st.info("尚未选择标签")
 
@@ -183,7 +185,7 @@ def process_audio():
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
-    # 安全加载CSV（避免空文件或格式错误）
+    # 安全加载CSV
     try:
         df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
             columns=["filename", "segment_index", "start_time", "end_time", "labels"]
@@ -262,8 +264,6 @@ def process_audio():
                                 st.warning("❗请至少选择一个标签")
                                 return
 
-                            os.makedirs(output_dir, exist_ok=True)
-
                             base_name = os.path.splitext(audio_file.name)[0]
                             try:
                                 base_name = base_name.encode('utf-8').decode('utf-8')
@@ -325,7 +325,6 @@ def process_audio():
 
                         except Exception as e:
                             st.error(f"保存过程中发生错误: {str(e)}")
-                            st.error(f"错误详情: {repr(e)}")
 
                 with col_skip:
                     if st.button("跳过本段", key=f"skip_{current_segment_key}"):
@@ -342,7 +341,6 @@ def process_audio():
     st.session_state.audio_state = audio_state
 
 
-# ======== 主流程 =========
 if __name__ == "__main__":
     label_management_component()
     process_audio()
