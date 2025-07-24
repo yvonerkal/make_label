@@ -3,20 +3,21 @@ with col_save:
         # 1. 检查标签
         if not st.session_state.current_selected_labels:
             st.warning("❗请至少选择一个标签")
-            continue
+            return  # 替换 continue，直接返回不再执行后续代码
         
         # 2. 检查输出目录
         if not os.path.exists(output_dir):
             st.error(f"保存目录不存在：{output_dir}，请修改路径")
-            continue
+            return  # 替换 continue
         
         try:
-            # 3. 保存音频片段
+            # 3. 保存音频片段（后续逻辑不变）
             segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
             segment_path = os.path.join(output_dir, segment_filename)
             if len(segment_y) == 0:
                 st.error("音频片段为空，无法保存")
-                continue
+                return  # 替换 continue
+            
             sf.write(segment_path, segment_y, sr)
             
             # 4. 准备CSV条目（清洗标签）
@@ -36,14 +37,14 @@ with col_save:
                 df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
             df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
             
-            # 6. 更新状态（验证索引）
+            # 6. 更新状态
             current_segment_info = audio_state["segment_info"].get(audio_file.name, {})
             if current_segment_info.get("current_seg", 0) != seg_idx:
-                st.error("片段已被修改，请重试")
-                continue
+                st.error("片段索引不匹配，可能已被修改，请重试")
+                return  # 替换 continue
             
             if seg_idx + 1 < total_segments:
-                audio_state["segment_info"][audio_file.name]["current_seg"] = seg_idx + 1
+                audio_state["segment_info"][audio_file.name]["current_seg"] += 1
             else:
                 audio_state["processed_files"].add(audio_file.name)
                 audio_state["current_index"] += 1
@@ -56,4 +57,4 @@ with col_save:
         except FileNotFoundError:
             st.error(f"路径不存在：'{output_dir}'")
         except Exception as e:
-            st.error(f"保存失败：{str(e)}（请检查文件是否被占用或格式正确）")
+            st.error(f"保存失败：{str(e)}（请检查文件是否被占用）")
