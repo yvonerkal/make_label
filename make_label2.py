@@ -278,13 +278,13 @@ def process_audio():
                 now = time.time()
                 if now - st.session_state.play_state["last_refresh"] > 0.1:
                     st.session_state.play_state["last_refresh"] = now
-                    st.experimental_rerun()  # 强制刷新页面
+                    st.rerun()  # 强制刷新页面
 
                 # 播放结束后自动暂停
                 if current_pos >= segment_duration:
                     st.session_state.play_state["is_playing"] = False
                     st.session_state.play_state["current_pos"] = segment_duration
-                    st.experimental_rerun()
+                    st.rerun()
             elif st.session_state.play_state["segment_key"] == current_segment_key:
                 current_pos = st.session_state.play_state["current_pos"]
 
@@ -333,7 +333,7 @@ def process_audio():
                                 audio_state["current_index"] += 1
 
                             st.success(f"成功保存标注！文件: {segment_filename}")
-                            st.experimental_rerun()
+                            st.rerun()
 
                         except Exception as e:
                             st.error(f"保存失败: {str(e)}")
@@ -345,7 +345,7 @@ def process_audio():
                         else:
                             audio_state["processed_files"].add(audio_file.name)
                             audio_state["current_index"] += 1
-                        st.experimental_rerun()
+                        st.rerun()
 
     else:
         st.success("🎉 所有音频标注完成！")
