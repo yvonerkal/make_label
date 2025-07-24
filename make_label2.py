@@ -14,13 +14,11 @@ from io import BytesIO
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
-    """缓存音频加载，不受标签影响"""
     return librosa.load(file, sr=None)
 
 
 @st.cache_data(show_spinner=False)
 def generate_spectrogram_image(y, sr):
-    """缓存频谱图，仅依赖音频数据"""
     fig, ax = plt.subplots(figsize=(5, 3))
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
@@ -35,7 +33,6 @@ def generate_spectrogram_image(y, sr):
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    """缓存波形图，仅依赖音频数据"""
     fig, ax = plt.subplots(figsize=(5, 3))
     librosa.display.waveshow(y, sr=sr)
     ax.set(title="Waveform")
@@ -48,10 +45,9 @@ def generate_waveform_image(y, sr):
 
 
 # ======== Session 状态初始化 =========
+# 关键修改：移除默认标签，初始化为空列表
 if "dynamic_species_list" not in st.session_state:
-    st.session_state["dynamic_species_list"] = [
-        "北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍", "泽蛙", "其他"
-    ]
+    st.session_state["dynamic_species_list"] = []  # 无默认标签
 if "current_selected_labels" not in st.session_state:
     st.session_state.current_selected_labels = set()
 if "audio_state" not in st.session_state:
@@ -64,6 +60,7 @@ if "audio_state" not in st.session_state:
         "annotations": []
     }
 
+
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
 
@@ -73,14 +70,12 @@ def label_management_component():
     """标签管理独立组件，不影响音频处理"""
     with st.sidebar:
         st.markdown("### 🏷️ 标签设置")
-
+        
         # 使用表单避免实时重运行
-        with st.form("label_form"):
-            st.file_uploader("上传标签文件（每行一个）", type=["txt"], key="label_file")
+        with st.form("label_form", clear_on_submit=True):
+            label_file = st.file_uploader("上传标签文件（每行一个）", type=["txt"], key="label_file")
             submit_label = st.form_submit_button("加载标签")
-
-            label_file = st.session_state.get("label_file", None)
-
+            
             if submit_label and label_file:
                 try:
                     content = label_file.read().decode("utf-8")
@@ -88,18 +83,19 @@ def label_management_component():
                     if species_list:
                         st.session_state["dynamic_species_list"] = species_list
                         st.success(f"加载成功！共 {len(species_list)} 个标签")
-                        st.session_state["label_file"] = None  # ✅ 清空上传值
-                        st.rerun()  # ✅ 重新加载，刷新状态
+                        st.rerun()  # 立即刷新页面，更新标签显示
                     else:
-                        st.error("标签文件为空")
+                        st.error("标签文件为空，请检查内容")
                 except Exception as e:
                     st.error(f"错误：{str(e)}")
-
-        # 显示当前标签（快速预览）
+        
+        # 显示当前标签（无标签时提示上传）
         st.markdown("#### 当前标签预览")
-        st.write(st.session_state["dynamic_species_list"][:5] + (
-            ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
-
+        if st.session_state["dynamic_species_list"]:
+            st.write(st.session_state["dynamic_species_list"][:5] + (["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
+        else:
+            st.info("尚未加载标签，请上传标签文件")  # 无标签时提示
+    
     return st.session_state["dynamic_species_list"]
 
 
@@ -108,31 +104,34 @@ def annotation_labels_component(current_segment_key):
     """标注标签独立组件，仅处理标签逻辑"""
     species_list = st.session_state["dynamic_species_list"]
     col_labels = st.columns([1])[0]  # 右侧标签列
-
+    
     with col_labels:
         st.markdown("### 物种标签（可多选）")
-
+        
+        # 无标签时提示上传
+        if not species_list:
+            st.warning("请先在左侧上传标签文件")
+            return None, None  # 无标签时返回空按钮
+        
         # 搜索功能
         search_query = st.text_input("🔍 搜索标签", "", key=f"search_{current_segment_key}")
         filtered_species = [label for label in species_list if search_query.lower() in label.lower()]
-
+        
         # 已选标签显示
         st.info(f"已选标签数：{len(st.session_state.current_selected_labels)}")
         if st.session_state.current_selected_labels:
             st.success(f"已选：{', '.join(st.session_state.current_selected_labels)}")
-
-        # 标签复选框
+        
+        # 渲染标签复选框
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
             is_selected = label in st.session_state.current_selected_labels
-
+            
             if st.checkbox(label, key=key, value=is_selected):
-                if label not in st.session_state.current_selected_labels:
-                    st.session_state.current_selected_labels.add(label)
+                st.session_state.current_selected_labels.add(label)
             else:
-                if label in st.session_state.current_selected_labels:
-                    st.session_state.current_selected_labels.remove(label)
-
+                st.session_state.current_selected_labels.remove(label)
+        
         # 操作按钮
         st.markdown("### 🛠️ 操作")
         col_save, col_skip = st.columns(2)
@@ -160,7 +159,7 @@ def process_audio():
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
                 st.download_button("📄 下载标注CSV", f, "annotations.csv", "text/csv")
-
+        
         # 音频片段下载
         annotated_paths = []
         if os.path.exists(csv_path) and "segment_index" in pd.read_csv(csv_path).columns:
@@ -183,9 +182,8 @@ def process_audio():
         return
 
     # 音频处理逻辑
-    unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
-                                                     audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"])]
+    unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and 
+                  audio_state["segment_info"][f.name]["current_seg"] >= audio_state["segment_info"][f.name]["total_seg"])]
 
     if audio_state["current_index"] < len(unprocessed):
         audio_file = unprocessed[audio_state["current_index"]]
@@ -230,48 +228,48 @@ def process_audio():
         # 右侧标签（调用独立组件）
         col_save, col_skip = annotation_labels_component(current_segment_key)
 
-        # 保存逻辑
-        with col_save:
-            if st.button("保存本段标注", key=f"save_{current_segment_key}"):
-                if not st.session_state.current_selected_labels:
-                    st.warning("❗请至少选择一个标签")
-                else:
-                    try:
-                        segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
-                        sf.write(os.path.join(output_dir, segment_filename), segment_y, sr)
+        # 保存逻辑（无标签时禁用）
+        if col_save and col_skip:  # 仅当标签加载成功时显示按钮
+            with col_save:
+                if st.button("保存本段标注", key=f"save_{current_segment_key}"):
+                    if not st.session_state.current_selected_labels:
+                        st.warning("❗请至少选择一个标签")
+                    else:
+                        try:
+                            segment_filename = f"{os.path.splitext(audio_file.name)[0]}_seg{seg_idx}.wav"
+                            sf.write(os.path.join(output_dir, segment_filename), segment_y, sr)
 
-                        # 保存标注
-                        entry = {
-                            "filename": audio_file.name,
-                            "segment_index": segment_filename,
-                            "start_time": round(start_sec, 3),
-                            "end_time": round(end_sec, 3),
-                            "labels": ",".join(st.session_state.current_selected_labels)
-                        }
-                        audio_state["annotations"].append(entry)
-                        df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
-                        df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                            # 保存标注
+                            entry = {
+                                "filename": audio_file.name,
+                                "segment_index": segment_filename,
+                                "start_time": round(start_sec, 3),
+                                "end_time": round(end_sec, 3),
+                                "labels": ",".join(st.session_state.current_selected_labels)
+                            }
+                            audio_state["annotations"].append(entry)
+                            df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
+                            df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-                        # 切换到下一段
-                        if seg_idx + 1 < total_segments:
-                            audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-                        else:
-                            audio_state["processed_files"].add(audio_file.name)
-                            audio_state["current_index"] += 1
+                            # 切换到下一段
+                            if seg_idx + 1 < total_segments:
+                                audio_state["segment_info"][audio_file.name]["current_seg"] += 1
+                            else:
+                                audio_state["processed_files"].add(audio_file.name)
+                                audio_state["current_index"] += 1
 
-                        st.success("标注已保存！")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"保存失败：{str(e)}")
+                            st.success("标注已保存！")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"保存失败：{str(e)}")
 
-        # 跳过逻辑
-        with col_skip:
-            if st.button("跳过本段", key=f"skip_{current_segment_key}"):
-                if seg_idx + 1 < total_segments:
-                    audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-                else:
-                    audio_state["processed_files"].add(audio_file.name)
-                    audio_state["current_index"] += 1
+            with col_skip:
+                if st.button("跳过本段", key=f"skip_{current_segment_key}"):
+                    if seg_idx + 1 < total_segments:
+                        audio_state["segment_info"][audio_file.name]["current_seg"] += 1
+                    else:
+                        audio_state["processed_files"].add(audio_file.name)
+                        audio_state["current_index"] += 1
                 st.rerun()
 
     else:
