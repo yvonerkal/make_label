@@ -20,30 +20,31 @@ import base64
 def load_audio(file):
     return librosa.load(file, sr=None)
 
-@st.cache_data(show_spinner=False)
 def generate_spectrogram_image(y, sr):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    plt.figure(figsize=(12, 6))
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
-    img = librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
-    fig.colorbar(img, ax=ax, format="%+2.0f dB")
-    ax.set(title="Spectrogram (dB)")
-    fig.tight_layout()
+    librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title('Spectrogram')
+    plt.tight_layout()
+    
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
     buf.seek(0)
-    plt.close(fig)
+    plt.close()
     return Image.open(buf)
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    fig, ax = plt.subplots(figsize=(12, 3))
+    plt.figure(figsize=(12, 3))
     librosa.display.waveshow(y, sr=sr)
-    ax.set(title="Waveform")
-    fig.tight_layout()
+    plt.title('Waveform')
+    plt.tight_layout()
+    
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
     buf.seek(0)
-    plt.close(fig)
+    plt.close()
     return Image.open(buf)
 
 def get_pinyin_abbr(text):
@@ -51,11 +52,6 @@ def get_pinyin_abbr(text):
 
 def get_full_pinyin(text):
     return ''.join(lazy_pinyin(text))
-
-def image_to_base64(image):
-    buffered = BytesIO()
-    image.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -164,21 +160,18 @@ def spectral_annotation_component(y, sr, current_segment_key):
     with col_main:
         st.subheader("🎧 频谱图画框标注")
         
-        # 生成并缓存频谱图
-        if st.session_state.spec_image is None:
-            st.session_state.spec_image = generate_spectrogram_image(y, sr)
+        # 生成频谱图
+        spec_image = generate_spectrogram_image(y, sr)
+        st.session_state.spec_image = spec_image
         
-        # 显示原始频谱图（调试用）
-        st.image(st.session_state.spec_image, caption="频谱图预览", use_column_width=True)
-        
-        # 画布配置
+        # 显示画布
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
-            stroke_color="red",
-            background_image=st.session_state.spec_image,
-            height=600,
-            width=1000,
+            stroke_color="#FF0000",
+            background_image=spec_image,
+            height=spec_image.height,
+            width=spec_image.width,
             drawing_mode="rect",
             key=f"canvas_{current_segment_key}",
             update_streamlit=True
@@ -187,9 +180,13 @@ def spectral_annotation_component(y, sr, current_segment_key):
         # 处理画框结果
         if canvas_result.json_data is not None:
             st.session_state.canvas_boxes = [
-                {"left": obj["left"], "top": obj["top"], 
-                 "width": obj["width"], "height": obj["height"]}
-                for obj in canvas_result.json_data["objects"] 
+                {
+                    "left": obj["left"],
+                    "top": obj["top"],
+                    "width": obj["width"],
+                    "height": obj["height"]
+                }
+                for obj in canvas_result.json_data["objects"]
                 if obj["type"] == "rect"
             ]
         
@@ -219,7 +216,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
 # ======== 音频处理主逻辑 ========
 def process_audio():
     audio_state = st.session_state.audio_state
-    output_dir = "uploaded_audios"
+    output_dir = "annotated_audios"
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
