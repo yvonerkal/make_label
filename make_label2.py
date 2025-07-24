@@ -13,21 +13,20 @@ from PIL import Image
 import uuid
 import base64
 from streamlit.components.v1 import html
+import time
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
 
-@st.cache_data(show_spinner=False)
 def generate_spectrogram_image(y, sr, current_time=None):
     fig, ax = plt.subplots(figsize=(5, 3))
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
-    img = librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
+    librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
     ax.set(title="Spectrogram (dB)")
     if current_time is not None:
         ax.axvline(x=current_time, color='red', linestyle='-', linewidth=2, alpha=0.8, zorder=10)
-    fig.colorbar(img, ax=ax, format="%+2.0f dB")
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
@@ -35,7 +34,6 @@ def generate_spectrogram_image(y, sr, current_time=None):
     plt.close(fig)
     return Image.open(buf)
 
-@st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr, current_time=None):
     fig, ax = plt.subplots(figsize=(5, 3))
     librosa.display.waveshow(y, sr=sr, ax=ax)
@@ -64,7 +62,8 @@ if "audio_state" not in st.session_state:
         "last_seg_idx": -1,
         "annotations": [],
         "playback_position": 0.0,
-        "is_playing": False
+        "is_playing": False,
+        "last_update": time.time()
     }
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
@@ -85,13 +84,20 @@ def audio_player_with_callback(audio_bytes, key):
             const currentTime = audio.currentTime;
             const isPlaying = !audio.paused;
             
-            window.parent.postMessage({{
-                type: 'AUDIO_PROGRESS',
-                key: '{key}',
-                currentTime: currentTime,
-                isPlaying: isPlaying
-            }}, '*');
+            // 限制更新频率 (200ms)
+            const now = new Date().getTime();
+            if (now - window.lastAudioUpdate > 200 || !window.lastAudioUpdate) {{
+                window.lastAudioUpdate = now;
+                window.parent.postMessage({{
+                    type: 'AUDIO_PROGRESS',
+                    key: '{key}',
+                    currentTime: currentTime,
+                    isPlaying: isPlaying
+                }}, '*');
+            }}
         }}
+        // 初始化变量
+        window.lastAudioUpdate = 0;
     </script>
     """
     return audio_html
@@ -236,7 +242,7 @@ def process_audio():
             is_playing = audio_state.get("is_playing", False)
             
             # 只有当当前音频是活动音频时才显示进度线
-            show_progress = is_playing
+            show_progress = is_playing and (time.time() - audio_state["last_update"] < 0.3)
             
             # 两列布局
             col1, col2 = st.columns(2)
@@ -357,6 +363,7 @@ if __name__ == "__main__":
             if isinstance(data, dict) and data.get("type") == "AUDIO_PROGRESS":
                 st.session_state.audio_state["playback_position"] = data["currentTime"]
                 st.session_state.audio_state["is_playing"] = data["isPlaying"]
+                st.session_state.audio_state["last_update"] = time.time()
                 st.rerun()
     
     label_management_component()
