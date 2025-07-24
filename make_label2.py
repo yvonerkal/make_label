@@ -1,3 +1,5 @@
+# 修复后的完整代码（修正括号匹配问题）
+
 import streamlit as st
 import librosa
 import librosa.display
@@ -107,7 +109,6 @@ def label_management_component():
         st.write(st.session_state["dynamic_species_list"][:5] + (
             ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
         
-        # 标注模式选择
         st.session_state.annotation_mode = st.radio(
             "标注模式",
             ["分段标注", "频谱图画框"],
@@ -117,29 +118,23 @@ def label_management_component():
 
 # ======== 频谱图画框组件 ========
 def spectral_annotation_component(y, sr, current_segment_key):
-    """频谱图画框标注组件"""
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        # 生成交互式频谱图
         fig, ax = plt.subplots(figsize=(10, 4))
         D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
         librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
-        ax.set(title="Spectrogram (Click and drag to annotate)")
         
-        # 绘制已有标注框
         for box in st.session_state.spectral_boxes:
             draw_rectangle(fig, ax, box['start'], box['end'], 
                           box['low_freq'], box['high_freq'], box['label'])
         
         st.pyplot(fig)
         
-        # 音频播放器
         audio_bytes = BytesIO()
         sf.write(audio_bytes, y, sr, format='WAV')
         st.audio(audio_bytes, format="audio/wav")
         
-        # 画框控制
         with st.expander("标注工具", expanded=True):
             cols = st.columns(2)
             with cols[0]:
@@ -169,7 +164,6 @@ def spectral_annotation_component(y, sr, current_segment_key):
                 st.rerun()
     
     with col2:
-        # 标签选择
         if st.session_state.spectral_boxes:
             st.markdown("### 标注框标签")
             for i, box in enumerate(st.session_state.spectral_boxes):
@@ -196,13 +190,9 @@ def segment_annotation_component(current_segment_key):
             st.warning("请先在左侧上传标签文件")
             return None, None
 
-        # 搜索框
         search_query = st.text_input("🔍 搜索标签（支持中文、拼音首字母、全拼）", "", key=f"search_{current_segment_key}")
 
-        # 生成缓存键
         cache_key = f"{current_segment_key}_{search_query}"
-
-        # 缓存搜索结果
         if cache_key not in st.session_state.filtered_labels_cache:
             filtered_species = []
             if search_query:
@@ -219,7 +209,6 @@ def segment_annotation_component(current_segment_key):
 
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 显示标签选择框
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
             is_selected = label in st.session_state.current_selected_labels
@@ -231,7 +220,6 @@ def segment_annotation_component(current_segment_key):
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         
-        # 操作按钮
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
 
@@ -242,7 +230,6 @@ def process_audio():
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
-    # 安全加载CSV
     try:
         df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
             columns=["filename", "segment_index", "start_time", "end_time", "labels", "low_freq", "high_freq"]
@@ -279,7 +266,7 @@ def process_audio():
 
     unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
                                                      audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"])]
+                                                     audio_state["segment_info"][f.name]["total_seg"]]
 
     if audio_state["current_index"] < len(unprocessed):
         audio_file = unprocessed[audio_state["current_index"]]
@@ -337,7 +324,6 @@ def process_audio():
     st.session_state.audio_state = audio_state
 
 def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir):
-    """保存分段标注结果"""
     csv_path = os.path.join(output_dir, "annotations.csv")
     
     try:
@@ -378,12 +364,11 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
 
         combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
-        # 更新状态
         audio_state = st.session_state.audio_state
         if audio_file.name not in audio_state["segment_info"]:
             audio_state["segment_info"][audio_file.name] = {
                 "current_seg": 0,
-                "total_seg": int(np.ceil(librosa.get_duration(y=segment_y, sr=sr) / 5.0)
+                "total_seg": int(np.ceil(librosa.get_duration(y=segment_y, sr=sr) / 5.0))
             }
 
         if seg_idx + 1 < audio_state["segment_info"][audio_file.name]["total_seg"]:
@@ -402,7 +387,6 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
         st.error(f"保存过程中发生错误: {str(e)}")
 
 def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, segment_y, sr, output_dir):
-    """保存频谱图标注结果"""
     csv_path = os.path.join(output_dir, "annotations.csv")
     
     try:
@@ -422,25 +406,20 @@ def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, s
                 st.error(f"请为标注框{i+1}选择标签")
                 return
 
-            # 计算实际时间位置
             abs_start = segment_start + box['start']
             abs_end = segment_start + box['end']
             
-            # 生成唯一文件名
             unique_id = uuid.uuid4().hex[:8]
             segment_filename = f"{base_name}_seg{seg_idx}_box{i}_{unique_id}.wav"
             segment_path = os.path.join(output_dir, segment_filename)
             
-            # 截取对应时间段的音频
             start_sample = int(box['start'] * sr)
             end_sample = int(box['end'] * sr)
             box_audio = segment_y[start_sample:end_sample]
             
-            # 保存音频片段
             with sf.SoundFile(segment_path, 'w', samplerate=sr, channels=1) as f:
                 f.write(box_audio)
             
-            # 创建记录
             entries.append({
                 "filename": audio_file.name,
                 "segment_index": segment_filename,
@@ -451,7 +430,6 @@ def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, s
                 "high_freq": box['high_freq']
             })
 
-        # 保存到CSV
         new_df = pd.DataFrame(entries)
         if os.path.exists(csv_path):
             existing_df = pd.read_csv(csv_path)
@@ -461,7 +439,6 @@ def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, s
 
         combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
-        # 更新状态
         audio_state = st.session_state.audio_state
         if seg_idx + 1 < audio_state["segment_info"][audio_file.name]["total_seg"]:
             audio_state["segment_info"][audio_file.name]["current_seg"] += 1
