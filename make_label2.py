@@ -21,60 +21,34 @@ def load_audio(file):
 
 @st.cache_data(show_spinner=False)
 def generate_spectrogram_image(y, sr, current_time=None):
-    fig, ax = plt.subplots(figsize=(5, 3))  # 保持原有尺寸
+    fig, ax = plt.subplots(figsize=(5, 3))
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
-    librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
+    img = librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
     ax.set(title="Spectrogram (dB)")
     if current_time is not None:
-        ax.axvline(x=current_time, color='r', linestyle='-', linewidth=1.5)
+        ax.axvline(x=current_time, color='red', linestyle='-', linewidth=2, alpha=0.8, zorder=10)
+    fig.colorbar(img, ax=ax, format="%+2.0f dB")
     fig.tight_layout()
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr, current_time=None):
-    fig, ax = plt.subplots(figsize=(5, 3))  # 保持原有尺寸
+    fig, ax = plt.subplots(figsize=(5, 3))
     librosa.display.waveshow(y, sr=sr, ax=ax)
     ax.set(title="Waveform")
     if current_time is not None:
-        ax.axvline(x=current_time, color='r', linestyle='-', linewidth=1.5)
-        ax.plot(current_time, 0, 'ro', markersize=4)  # 红色圆点标记
+        ax.axvline(x=current_time, color='red', linestyle='-', linewidth=2, alpha=0.8, zorder=10)
+        ax.plot(current_time, 0, 'ro', markersize=6, alpha=0.8, zorder=11)
     fig.tight_layout()
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
-
-# ======== 音频播放器组件 ========
-def audio_player_with_progress(audio_bytes, key):
-    audio_base64 = base64.b64encode(audio_bytes.getvalue()).decode('utf-8')
-    
-    audio_html = f"""
-    <audio id="audio_{key}" controls ontimeupdate="updateProgress()">
-        <source src="data:audio/wav;base64,{audio_base64}" type="audio/wav">
-    </audio>
-    <script>
-        const audio = document.getElementById("audio_{key}");
-        
-        function updateProgress() {{
-            const currentTime = audio.currentTime;
-            const isPlaying = !audio.paused;
-            
-            // 发送数据到Streamlit
-            window.parent.postMessage({{
-                type: 'audioProgress',
-                key: '{key}',
-                currentTime: currentTime,
-                isPlaying: isPlaying
-            }}, '*');
-        }}
-    </script>
-    """
-    return audio_html
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -90,8 +64,7 @@ if "audio_state" not in st.session_state:
         "last_seg_idx": -1,
         "annotations": [],
         "playback_position": 0.0,
-        "is_playing": False,
-        "current_audio_key": None
+        "is_playing": False
     }
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
@@ -99,24 +72,29 @@ if "filtered_labels_cache" not in st.session_state:
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
 
-# ======== 处理前端消息 ========
-def handle_audio_progress_message(data):
-    if data['type'] == 'audioProgress':
-        st.session_state.audio_state['playback_position'] = data['currentTime']
-        st.session_state.audio_state['is_playing'] = data['isPlaying']
-        st.session_state.audio_state['current_audio_key'] = data['key']
-        st.rerun()
-
-# 注入JavaScript消息监听器
-html("""
-<script>
-    window.addEventListener('message', function(event) {
-        if (event.data.type === 'audioProgress') {
-            Streamlit.setComponentValue(event.data);
-        }
-    });
-</script>
-""", height=0)
+# ======== 音频播放器组件 ========
+def audio_player_with_callback(audio_bytes, key):
+    audio_base64 = base64.b64encode(audio_bytes.getvalue()).decode('utf-8')
+    audio_html = f"""
+    <audio id="audio_{key}" controls ontimeupdate="updateProgress()">
+        <source src="data:audio/wav;base64,{audio_base64}" type="audio/wav">
+    </audio>
+    <script>
+        function updateProgress() {{
+            const audio = document.getElementById("audio_{key}");
+            const currentTime = audio.currentTime;
+            const isPlaying = !audio.paused;
+            
+            window.parent.postMessage({{
+                type: 'AUDIO_PROGRESS',
+                key: '{key}',
+                currentTime: currentTime,
+                isPlaying: isPlaying
+            }}, '*');
+        }}
+    </script>
+    """
+    return audio_html
 
 # ======== 标签管理组件 =========
 def label_management_component():
@@ -221,8 +199,8 @@ def process_audio():
         return
 
     unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
-                                                     audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"])]
+                                                   audio_state["segment_info"][f.name]["current_seg"] >=
+                                                   audio_state["segment_info"][f.name]["total_seg"])]
 
     if audio_state["current_index"] < len(unprocessed):
         audio_file = unprocessed[audio_state["current_index"]]
@@ -250,7 +228,7 @@ def process_audio():
             
             # 使用自定义音频播放器
             audio_key = f"audio_{current_segment_key}"
-            audio_html = audio_player_with_progress(audio_bytes, audio_key)
+            audio_html = audio_player_with_callback(audio_bytes, audio_key)
             html(audio_html, height=50)
             
             # 获取当前播放状态
@@ -258,9 +236,9 @@ def process_audio():
             is_playing = audio_state.get("is_playing", False)
             
             # 只有当当前音频是活动音频时才显示进度线
-            show_progress = is_playing and audio_state.get("current_audio_key") == audio_key
+            show_progress = is_playing
             
-            # 保持原有两列布局
+            # 两列布局
             col1, col2 = st.columns(2)
             with col1:
                 st.image(
@@ -268,7 +246,7 @@ def process_audio():
                         segment_y, sr, 
                         playback_pos if show_progress else None
                     ),
-                    caption="波形图",
+                    caption="波形图（红线表示播放进度）",
                     use_container_width=True
                 )
             with col2:
@@ -277,7 +255,7 @@ def process_audio():
                         segment_y, sr, 
                         playback_pos if show_progress else None
                     ),
-                    caption="频谱图",
+                    caption="频谱图（红线表示播放进度）",
                     use_container_width=True
                 )
 
@@ -312,7 +290,7 @@ def process_audio():
                                 return
 
                             clean_labels = [label.replace("/", "").replace("\\", "") for label in
-                                            st.session_state.current_selected_labels]
+                                          st.session_state.current_selected_labels]
                             entry = {
                                 "filename": audio_file.name,
                                 "segment_index": segment_filename,
@@ -376,8 +354,10 @@ if __name__ == "__main__":
     # 处理来自前端的消息
     if st.session_state.get("_component_values"):
         for data in st.session_state._component_values.values():
-            if isinstance(data, dict) and data.get("type") == "audioProgress":
-                handle_audio_progress_message(data)
+            if isinstance(data, dict) and data.get("type") == "AUDIO_PROGRESS":
+                st.session_state.audio_state["playback_position"] = data["currentTime"]
+                st.session_state.audio_state["is_playing"] = data["isPlaying"]
+                st.rerun()
     
     label_management_component()
     process_audio()
