@@ -60,6 +60,7 @@ if "audio_state" not in st.session_state:
         "annotations": []
     }
 
+
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
 
@@ -69,12 +70,12 @@ def label_management_component():
     """标签管理独立组件，不影响音频处理"""
     with st.sidebar:
         st.markdown("### 🏷️ 标签设置")
-
+        
         # 使用表单避免实时重运行
         with st.form("label_form", clear_on_submit=True):
             label_file = st.file_uploader("上传标签文件（每行一个）", type=["txt"], key="label_file")
             submit_label = st.form_submit_button("加载标签")
-
+            
             if submit_label and label_file:
                 try:
                     content = label_file.read().decode("utf-8")
@@ -87,15 +88,14 @@ def label_management_component():
                         st.error("标签文件为空，请检查内容")
                 except Exception as e:
                     st.error(f"错误：{str(e)}")
-
+        
         # 显示当前标签（无标签时提示上传）
         st.markdown("#### 当前标签预览")
         if st.session_state["dynamic_species_list"]:
-            st.write(st.session_state["dynamic_species_list"][:5] + (
-                ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
+            st.write(st.session_state["dynamic_species_list"][:5] + (["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
         else:
             st.info("尚未加载标签，请上传标签文件")  # 无标签时提示
-
+    
     return st.session_state["dynamic_species_list"]
 
 
@@ -104,34 +104,34 @@ def annotation_labels_component(current_segment_key):
     """标注标签独立组件，仅处理标签逻辑"""
     species_list = st.session_state["dynamic_species_list"]
     col_labels = st.columns([1])[0]  # 右侧标签列
-
+    
     with col_labels:
         st.markdown("### 物种标签（可多选）")
-
+        
         # 无标签时提示上传
         if not species_list:
             st.warning("请先在左侧上传标签文件")
             return None, None  # 无标签时返回空按钮
-
+        
         # 搜索功能
         search_query = st.text_input("🔍 搜索标签", "", key=f"search_{current_segment_key}")
         filtered_species = [label for label in species_list if search_query.lower() in label.lower()]
-
+        
         # 已选标签显示
         st.info(f"已选标签数：{len(st.session_state.current_selected_labels)}")
         if st.session_state.current_selected_labels:
             st.success(f"已选：{', '.join(st.session_state.current_selected_labels)}")
-
+        
         # 渲染标签复选框
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
             is_selected = label in st.session_state.current_selected_labels
-
+            
             if st.checkbox(label, key=key, value=is_selected):
                 st.session_state.current_selected_labels.add(label)
             else:
                 st.session_state.current_selected_labels.remove(label)
-
+        
         # 操作按钮
         st.markdown("### 🛠️ 操作")
         col_save, col_skip = st.columns(2)
@@ -159,7 +159,7 @@ def process_audio():
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
                 st.download_button("📄 下载标注CSV", f, "annotations.csv", "text/csv")
-
+        
         # 音频片段下载
         annotated_paths = []
         if os.path.exists(csv_path) and "segment_index" in pd.read_csv(csv_path).columns:
@@ -182,9 +182,8 @@ def process_audio():
         return
 
     # 音频处理逻辑
-    unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
-                                                     audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"])]
+    unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and 
+                  audio_state["segment_info"][f.name]["current_seg"] >= audio_state["segment_info"][f.name]["total_seg"])]
 
     if audio_state["current_index"] < len(unprocessed):
         audio_file = unprocessed[audio_state["current_index"]]
