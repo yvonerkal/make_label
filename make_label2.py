@@ -275,8 +275,7 @@ def process_audio():
             pd.DataFrame(columns=[
                 "filename", "segment_index", "box_id",
                 "start_time", "end_time", "min_freq", "max_freq", "label"
-            ]).to_csv(csv_path, index=False)
-        df_old = pd.read_csv(csv_path)
+            ]).to_csv(csv_path, index=False, encoding='utf-8-sig')  # 使用UTF-8-SIG编码
     except Exception as e:
         st.error(f"CSV文件错误：{str(e)}")
         return
@@ -286,6 +285,7 @@ def process_audio():
         uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True, key="audio_files")
         st.markdown("### 📥 下载结果")
         if os.path.exists(csv_path):
+            # 使用UTF-8-SIG编码读取并提供下载
             with open(csv_path, "rb") as f:
                 st.download_button("📄 下载标注结果", f, "annotations.csv", "text/csv")
         if os.path.exists(output_dir):
@@ -363,7 +363,8 @@ def process_audio():
                         "max_freq": time_freq["max"],
                         "label": box["label"]
                     })
-                pd.DataFrame(entries).to_csv(csv_path, mode='a', header=False, index=False)
+                # 使用UTF-8-SIG编码保存CSV
+                pd.DataFrame(entries).to_csv(csv_path, mode='a', header=False, index=False, encoding='utf-8-sig')
 
                 # 更新状态，进入下一段
                 audio_state["segment_info"][audio_file.name]["current_seg"] += 1
@@ -435,7 +436,8 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
         "max_freq": None,
         "label": ",".join(st.session_state.current_selected_labels)
     }
-    pd.DataFrame([entry]).to_csv(csv_path, mode='a', header=False, index=False)
+    # 使用UTF-8-SIG编码保存CSV
+    pd.DataFrame([entry]).to_csv(csv_path, mode='a', header=False, index=False, encoding='utf-8-sig')
 
     audio_state = st.session_state.audio_state
     audio_state["segment_info"][audio_file.name]["current_seg"] += 1
