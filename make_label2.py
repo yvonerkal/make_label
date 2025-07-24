@@ -124,40 +124,36 @@ def annotation_labels_component(current_segment_key):
             ]
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 显示标签选择框
-        for label in filtered_species:
-            key = f"label_{label}_{current_segment_key}"
-            # 使用 session_state 来跟踪复选框状态
-            if key not in st.session_state:
-                st.session_state[key] = label in st.session_state.current_selected_labels
+        # 初始化选中状态
+        if f"selected_labels_{current_segment_key}" not in st.session_state:
+            st.session_state[f"selected_labels_{current_segment_key}"] = set()
 
-            # 显示复选框并更新状态
-            if st.checkbox(label, key=key, value=st.session_state[key]):
-                st.session_state.current_selected_labels.add(label)
-                st.session_state[key] = True
-            else:
-                st.session_state.current_selected_labels.discard(label)
-                st.session_state[key] = False
+        # 显示标签选择框
+        current_selections = set()
+        for label in filtered_species:
+            # 使用唯一的key生成checkbox
+            selected = st.checkbox(label, key=f"cb_{label}_{current_segment_key}")
+            if selected:
+                current_selections.add(label)
+
+        # 更新选中状态
+        st.session_state[f"selected_labels_{current_segment_key}"] = current_selections
+        st.session_state.current_selected_labels = current_selections
 
         st.markdown("### 已选标签")
-        st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
+        st.info(f"已选数量：{len(current_selections)}")
 
         # 显示已选标签并提供删除功能
-        if st.session_state.current_selected_labels:
-            cols = st.columns(4)  # 每行显示4个标签
+        if current_selections:
+            cols = st.columns(4)
             col_index = 0
 
-            # 创建已选标签的副本以避免修改迭代中的集合
-            selected_labels = list(st.session_state.current_selected_labels)
-
-            for label in selected_labels:
+            for label in list(current_selections):
                 with cols[col_index]:
-                    # 使用独特的key确保按钮唯一性
-                    if st.button(f"× {label}", key=f"remove_{label}_{current_segment_key}"):
-                        # 从已选集合中移除
-                        st.session_state.current_selected_labels.discard(label)
-                        # 更新复选框状态
-                        st.session_state[f"label_{label}_{current_segment_key}"] = False
+                    # 使用按钮删除标签
+                    if st.button(f"× {label}", key=f"rm_{label}_{current_segment_key}"):
+                        # 通过重新运行来更新状态
+                        st.session_state[f"cb_{label}_{current_segment_key}"] = False
                         st.experimental_rerun()
                 col_index = (col_index + 1) % 4
         else:
