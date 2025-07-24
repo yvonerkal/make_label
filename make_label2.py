@@ -13,6 +13,7 @@ from io import BytesIO
 from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
+import base64
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
@@ -21,25 +22,26 @@ def load_audio(file):
 
 @st.cache_data(show_spinner=False)
 def generate_spectrogram_image(y, sr):
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(12, 6))
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
-    librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
+    img = librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
+    fig.colorbar(img, ax=ax, format="%+2.0f dB")
     ax.set(title="Spectrogram (dB)")
     fig.tight_layout()
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    fig, ax = plt.subplots(figsize=(10, 2))
+    fig, ax = plt.subplots(figsize=(12, 3))
     librosa.display.waveshow(y, sr=sr)
     ax.set(title="Waveform")
     fig.tight_layout()
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
@@ -49,6 +51,11 @@ def get_pinyin_abbr(text):
 
 def get_full_pinyin(text):
     return ''.join(lazy_pinyin(text))
+
+def image_to_base64(image):
+    buffered = BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -98,7 +105,6 @@ def label_management_component():
         st.write(st.session_state["dynamic_species_list"][:5] + (
             ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
         
-        # 标注模式选择
         st.session_state.annotation_mode = st.radio(
             "标注模式",
             ["分段标注", "频谱图画框"],
@@ -117,13 +123,10 @@ def annotation_labels_component(current_segment_key):
             st.warning("请先在左侧上传标签文件")
             return None, None
 
-        # 搜索框
         search_query = st.text_input("🔍 搜索标签（支持中文、拼音首字母、全拼）", "", key=f"search_{current_segment_key}")
 
-        # 生成缓存键
         cache_key = f"{current_segment_key}_{search_query}"
 
-        # 缓存搜索结果
         if cache_key not in st.session_state.filtered_labels_cache:
             filtered_species = []
             if search_query:
@@ -140,7 +143,6 @@ def annotation_labels_component(current_segment_key):
 
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 显示标签选择框
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
             is_selected = label in st.session_state.current_selected_labels
@@ -152,7 +154,6 @@ def annotation_labels_component(current_segment_key):
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         
-        # 操作按钮
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
 
@@ -163,18 +164,21 @@ def spectral_annotation_component(y, sr, current_segment_key):
     with col_main:
         st.subheader("🎧 频谱图画框标注")
         
-        # 生成频谱图
+        # 生成并缓存频谱图
         if st.session_state.spec_image is None:
             st.session_state.spec_image = generate_spectrogram_image(y, sr)
         
-        # 显示频谱图并添加画布
+        # 显示原始频谱图（调试用）
+        st.image(st.session_state.spec_image, caption="频谱图预览", use_column_width=True)
+        
+        # 画布配置
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
             stroke_color="red",
             background_image=st.session_state.spec_image,
-            height=400,
-            width=800,
+            height=600,
+            width=1000,
             drawing_mode="rect",
             key=f"canvas_{current_segment_key}",
             update_streamlit=True
@@ -182,36 +186,30 @@ def spectral_annotation_component(y, sr, current_segment_key):
         
         # 处理画框结果
         if canvas_result.json_data is not None:
-            new_boxes = []
-            for obj in canvas_result.json_data["objects"]:
-                if obj["type"] == "rect":
-                    new_boxes.append({
-                        "left": obj["left"],
-                        "top": obj["top"],
-                        "width": obj["width"],
-                        "height": obj["height"]
-                    })
-            st.session_state.canvas_boxes = new_boxes
+            st.session_state.canvas_boxes = [
+                {"left": obj["left"], "top": obj["top"], 
+                 "width": obj["width"], "height": obj["height"]}
+                for obj in canvas_result.json_data["objects"] 
+                if obj["type"] == "rect"
+            ]
         
-        # 音频播放器
+        # 音频播放
         audio_bytes = BytesIO()
         sf.write(audio_bytes, y, sr, format='WAV')
         st.audio(audio_bytes, format="audio/wav")
         
-        # 操作按钮
         if st.button("撤销上一个标注框"):
             if st.session_state.canvas_boxes:
                 st.session_state.canvas_boxes.pop()
                 st.rerun()
     
     with col_labels:
-        # 使用原有的标签选择组件
         col_save, col_skip = annotation_labels_component(current_segment_key)
         
         if st.session_state.canvas_boxes:
             st.markdown("### 当前标注框")
             for i, box in enumerate(st.session_state.canvas_boxes):
-                st.write(f"{i+1}. 位置: ({box['left']:.0f}, {box['top']:.0f}), 大小: {box['width']:.0f}x{box['height']:.0f}")
+                st.write(f"{i+1}. X:{box['left']:.0f}, Y:{box['top']:.0f}, W:{box['width']:.0f}, H:{box['height']:.0f}")
         
         if col_save and st.button("保存所有标注", key=f"save_boxes_{current_segment_key}"):
             return True
@@ -239,19 +237,13 @@ def process_audio():
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
                 st.download_button("📄 下载CSV", f, "annotations.csv", "text/csv")
-        annotated_paths = []
-        if os.path.exists(csv_path) and "segment_index" in pd.read_csv(csv_path).columns:
-            for _, row in pd.read_csv(csv_path).iterrows():
-                try:
-                    fname = str(row["segment_index"])
-                    if fname and os.path.exists(os.path.join(output_dir, fname)):
-                        annotated_paths.append(os.path.join(output_dir, fname))
-                except:
-                    pass
-        if annotated_paths:
+        
+        if os.path.exists(output_dir):
             with zipfile.ZipFile(zip_buf := BytesIO(), "w") as zf:
-                for p in annotated_paths:
-                    zf.write(p, os.path.basename(p))
+                for root, _, files in os.walk(output_dir):
+                    for file in files:
+                        if file.endswith(".wav"):
+                            zf.write(os.path.join(root, file), file)
             zip_buf.seek(0)
             st.download_button("🎵 下载音频片段", zip_buf, "annotated_segments.zip", "application/zip")
 
@@ -259,23 +251,30 @@ def process_audio():
         st.info("请先上传音频文件")
         return
 
-    unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
-                                                     audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"])]
+    unprocessed = [f for f in uploaded_files if f.name not in audio_state["processed_files"]]
 
-    if audio_state["current_index"] < len(unprocessed):
-        audio_file = unprocessed[audio_state["current_index"]]
+    if unprocessed:
+        audio_file = unprocessed[0]
         y, sr = load_audio(audio_file)
         total_duration = librosa.get_duration(y=y, sr=sr)
         total_segments = int(np.ceil(total_duration / 5.0))
-        seg_idx = audio_state["segment_info"].get(audio_file.name, {"current_seg": 0})["current_seg"]
+        
+        if audio_file.name not in audio_state["segment_info"]:
+            audio_state["segment_info"][audio_file.name] = {
+                "current_seg": 0,
+                "total_seg": total_segments
+            }
+            
+        seg_idx = audio_state["segment_info"][audio_file.name]["current_seg"]
         current_segment_key = f"{audio_file.name}_{seg_idx}"
 
-        if (audio_state["last_audio_file"] != audio_file.name or audio_state["last_seg_idx"] != seg_idx):
+        if (audio_state["last_audio_file"] != audio_file.name or 
+            audio_state["last_seg_idx"] != seg_idx):
             st.session_state.current_selected_labels = set()
             st.session_state.canvas_boxes = []
             st.session_state.spec_image = None
-            audio_state["last_audio_file"], audio_state["last_seg_idx"] = audio_file.name, seg_idx
+            audio_state["last_audio_file"] = audio_file.name
+            audio_state["last_seg_idx"] = seg_idx
 
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
         
@@ -307,11 +306,9 @@ def process_audio():
                     save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir)
                 
                 if col_skip and st.button("跳过本段", key=f"skip_{current_segment_key}"):
-                    if seg_idx + 1 < total_segments:
-                        audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-                    else:
+                    audio_state["segment_info"][audio_file.name]["current_seg"] += 1
+                    if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                         audio_state["processed_files"].add(audio_file.name)
-                        audio_state["current_index"] += 1
                     st.rerun()
 
     else:
@@ -329,60 +326,41 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
             return
 
         base_name = os.path.splitext(audio_file.name)[0]
-        try:
-            base_name = base_name.encode('utf-8').decode('utf-8')
-        except:
-            base_name = "audio_segment"
-
         unique_id = uuid.uuid4().hex[:8]
         segment_filename = f"{base_name}_seg{seg_idx}_{unique_id}.wav"
         segment_path = os.path.join(output_dir, segment_filename)
 
-        with sf.SoundFile(segment_path, 'w', samplerate=sr, channels=1) as f:
-            f.write(segment_y)
+        sf.write(segment_path, segment_y, sr)
 
-        clean_labels = [label.replace("/", "").replace("\\", "") for label in st.session_state.current_selected_labels]
         entry = {
             "filename": audio_file.name,
             "segment_index": segment_filename,
             "start_time": round(start_sec, 3),
             "end_time": round(end_sec, 3),
-            "labels": ",".join(clean_labels),
+            "labels": ",".join(st.session_state.current_selected_labels),
             "box_data": None
         }
 
-        new_df = pd.DataFrame([entry])
+        df = pd.DataFrame([entry])
         if os.path.exists(csv_path):
-            existing_df = pd.read_csv(csv_path)
-            combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+            df.to_csv(csv_path, mode='a', header=False, index=False)
         else:
-            combined_df = new_df
-
-        combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+            df.to_csv(csv_path, index=False)
 
         audio_state = st.session_state.audio_state
-        if audio_file.name not in audio_state["segment_info"]:
-            audio_state["segment_info"][audio_file.name] = {
-                "current_seg": 0,
-                "total_seg": int(np.ceil(librosa.get_duration(y=segment_y, sr=sr) / 5.0))
-            }
-
-        if seg_idx + 1 < audio_state["segment_info"][audio_file.name]["total_seg"]:
-            audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-        else:
+        audio_state["segment_info"][audio_file.name]["current_seg"] += 1
+        if audio_state["segment_info"][audio_file.name]["current_seg"] >= audio_state["segment_info"][audio_file.name]["total_seg"]:
             audio_state["processed_files"].add(audio_file.name)
-            audio_state["current_index"] += 1
 
-        st.session_state.audio_state = audio_state
         st.session_state.current_selected_labels = set()
         st.success(f"成功保存标注！文件: {segment_filename}")
         st.balloons()
         st.rerun()
 
     except Exception as e:
-        st.error(f"保存过程中发生错误: {str(e)}")
+        st.error(f"保存错误: {str(e)}")
 
-def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, segment_y, sr, output_dir):
+def save_spectral_annotations(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir):
     csv_path = os.path.join(output_dir, "annotations.csv")
     
     try:
@@ -391,64 +369,42 @@ def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, s
             return
 
         base_name = os.path.splitext(audio_file.name)[0]
-        try:
-            base_name = base_name.encode('utf-8').decode('utf-8')
-        except:
-            base_name = "audio_segment"
-
-        label = list(st.session_state.current_selected_labels)[0]  # 取第一个选中的标签
-        
-        # 生成唯一文件名
         unique_id = uuid.uuid4().hex[:8]
         segment_filename = f"{base_name}_seg{seg_idx}_box_{unique_id}.wav"
         segment_path = os.path.join(output_dir, segment_filename)
-        
-        # 保存音频片段
-        with sf.SoundFile(segment_path, 'w', samplerate=sr, channels=1) as f:
-            f.write(segment_y)
-        
-        # 创建记录
+
+        sf.write(segment_path, segment_y, sr)
+
         entry = {
             "filename": audio_file.name,
             "segment_index": segment_filename,
-            "start_time": round(segment_start, 3),
-            "end_time": round(segment_end, 3),
-            "labels": label,
+            "start_time": round(start_sec, 3),
+            "end_time": round(end_sec, 3),
+            "labels": list(st.session_state.current_selected_labels)[0],
             "box_data": str(st.session_state.canvas_boxes)
         }
 
-        # 保存到CSV
-        new_df = pd.DataFrame([entry])
+        df = pd.DataFrame([entry])
         if os.path.exists(csv_path):
-            existing_df = pd.read_csv(csv_path)
-            combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+            df.to_csv(csv_path, mode='a', header=False, index=False)
         else:
-            combined_df = new_df
+            df.to_csv(csv_path, index=False)
 
-        combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
-
-        # 更新状态
         audio_state = st.session_state.audio_state
-        if seg_idx + 1 < audio_state["segment_info"][audio_file.name]["total_seg"]:
-            audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-        else:
+        audio_state["segment_info"][audio_file.name]["current_seg"] += 1
+        if audio_state["segment_info"][audio_file.name]["current_seg"] >= audio_state["segment_info"][audio_file.name]["total_seg"]:
             audio_state["processed_files"].add(audio_file.name)
-            audio_state["current_index"] += 1
 
-        st.session_state.audio_state = audio_state
         st.session_state.canvas_boxes = []
         st.session_state.current_selected_labels = set()
         st.session_state.spec_image = None
-        st.success("成功保存标注框！")
+        st.success("标注框保存成功！")
         st.balloons()
         st.rerun()
 
     except Exception as e:
-        st.error(f"保存过程中发生错误: {str(e)}")
+        st.error(f"保存错误: {str(e)}")
 
 if __name__ == "__main__":
-    # 安装额外依赖: pip install streamlit-drawable-canvas
-    from streamlit_drawable_canvas import st_canvas
-    
     label_management_component()
     process_audio()
