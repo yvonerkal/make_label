@@ -140,7 +140,7 @@ def annotation_labels_component(current_segment_key):
 # ======== 音频处理逻辑 =========
 def process_audio():
     audio_state = st.session_state.audio_state
-    output_dir = "E:/Frog audio classification/uploaded_audios"
+    output_dir ="uploaded_audios"
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
     df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
