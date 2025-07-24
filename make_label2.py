@@ -12,26 +12,11 @@ import re
 from io import BytesIO
 from PIL import Image
 import uuid
+from pinyin import pinyin  # 导入pinyin库
 
 
-# ======== 核心：内置拼音首字母转换（无需额外依赖） =========
+# ======== 拼音首字母转换工具（基于pinyin库） =========
 class PinyinConverter:
-    """简易拼音首字母转换工具，支持常用中文字符"""
-    # 拼音首字母映射表（精简版，覆盖常用汉字）
-    INITIALS = {
-        'a': 'a', 'b': 'b', 'c': 'c', 'd': 'd', 'e': 'e', 'f': 'f', 'g': 'g',
-        'h': 'h', 'i': 'i', 'j': 'j', 'k': 'k', 'l': 'l', 'm': 'm', 'n': 'n',
-        'o': 'o', 'p': 'p', 'q': 'q', 'r': 'r', 's': 's', 't': 't', 'u': 'u',
-        'v': 'v', 'w': 'w', 'x': 'x', 'y': 'y', 'z': 'z',
-        # 常用汉字首字母（示例，可根据需要扩展）
-        '一': 'y', '乙': 'y', '二': 'e', '三': 's', '四': 's', '五': 'w',
-        '六': 'l', '七': 'q', '八': 'b', '九': 'j', '十': 's',
-        '牛': 'n', '蛙': 'w', '青': 'q', '蛙': 'w', '田': 't', '鸡': 'j',
-        '蛇': 's', '狗': 'g', '猪': 'z', '猫': 'm', '虎': 'h', '龙': 'l',
-        '鸟': 'n', '鱼': 'y', '虫': 'c', '鼠': 's', '兔': 't', '马': 'm',
-        '羊': 'y', '猴': 'h', '熊': 'x', '鹿': 'l', '狼': 'l', '豹': 'b'
-    }
-
     @classmethod
     def get_initial(cls, char):
         """获取单个字符的拼音首字母（小写）"""
@@ -40,8 +25,12 @@ class PinyinConverter:
         # 字母直接返回小写
         if char.isalpha():
             return char.lower()
-        # 汉字从映射表获取，无对应则返回空
-        return cls.INITIALS.get(char, '')
+        # 汉字通过pinyin库获取首字母
+        try:
+            # 例如：pinyin("牛") → [['niu']] → 首字母 'n'
+            return pinyin(char)[0][0][0].lower()
+        except:
+            return ''  # 转换失败返回空
 
     @classmethod
     def get_label_initial(cls, label):
@@ -82,10 +71,10 @@ def generate_waveform_image(y, sr):
     return Image.open(buf)
 
 
-# ======== 模糊搜索函数（强化拼音首字母匹配） =========
+# ======== 模糊搜索函数（基于pinyin库） =========
 def fuzzy_search(labels, query):
     """
-    增强版模糊搜索，优先匹配：
+    增强版模糊搜索：
     1. 标签包含查询字符串（不区分大小写）
     2. 标签拼音首字母包含查询字符串（如"nw"匹配"牛蛙"）
     3. 查询字符串是标签的子序列（如"牛亚"匹配"牛蛙_亚种A"）
@@ -98,18 +87,19 @@ def fuzzy_search(labels, query):
     
     for label in labels:
         label_lower = label.lower()
-        # 规则1：完全包含匹配（优先级最高）
+        
+        # 规则1：直接包含匹配
         if query_lower in label_lower:
             matched.append(label)
             continue
         
-        # 规则2：拼音首字母匹配（使用内置转换器）
+        # 规则2：拼音首字母匹配（基于pinyin库）
         label_initial = PinyinConverter.get_label_initial(label)
         if query_lower in label_initial:
             matched.append(label)
             continue
         
-        # 规则3：子序列匹配（如"牛亚"匹配"牛蛙_亚种A"）
+        # 规则3：子序列匹配
         it = iter(label_lower)
         if all(c in it for c in query_lower):
             matched.append(label)
@@ -136,7 +126,7 @@ if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
 
 st.set_page_config(layout="wide")
-st.title("🐸 青蛙音频标注工具（带拼音首字母搜索）")
+st.title("🐸 青蛙音频标注工具（基于pinyin库）")
 
 
 # ======== 标签管理组件 =========
@@ -158,13 +148,15 @@ def label_management_component():
                         st.error("标签文件为空")
                 except Exception as e:
                     st.error(f"错误：{str(e)}")
+        # 提示用户已安装pinyin库
+        st.info("✅ 已启用完整拼音首字母搜索（依赖pinyin库）")
         st.markdown("#### 当前标签预览")
         st.write(st.session_state["dynamic_species_list"][:5] + (
             ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
     return st.session_state["dynamic_species_list"]
 
 
-# ======== 右侧标注标签组件（强化搜索功能） =========
+# ======== 右侧标注标签组件 =========
 def annotation_labels_component(current_segment_key):
     species_list = st.session_state["dynamic_species_list"]
     col_labels = st.container()
@@ -175,9 +167,9 @@ def annotation_labels_component(current_segment_key):
             st.warning("请先在左侧上传标签文件")
             return None, None
 
-        # 模糊搜索框（支持拼音首字母）
+        # 搜索框（提示拼音首字母功能）
         search_query = st.text_input(
-            "🔍 搜索标签（支持拼音首字母，如输入'nw'匹配'牛蛙'）", 
+            "🔍 搜索标签（支持拼音首字母，如输入'nw'找'牛蛙'）", 
             "", 
             key=f"search_{current_segment_key}"
         )
@@ -191,13 +183,12 @@ def annotation_labels_component(current_segment_key):
             )
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 显示匹配信息
-        st.info(f"找到 {len(filtered_species)} 个匹配标签（总标签数：{len(species_list)}）")
+        # 显示匹配数量
+        st.info(f"找到 {len(filtered_species)} 个匹配标签（共 {len(species_list)} 个）")
 
-        # 带滚动条的标签选择区
+        # 带滚动条的标签选择区（显示拼音首字母）
         with st.container(height=300):
             for label in filtered_species:
-                # 显示标签及其拼音首字母（辅助用户理解匹配逻辑）
                 label_initial = PinyinConverter.get_label_initial(label)
                 display_text = f"{label}（首字母：{label_initial}）" if label_initial else label
                 
@@ -308,11 +299,6 @@ def process_audio():
 
                             os.makedirs(output_dir, exist_ok=True)
                             base_name = os.path.splitext(audio_file.name)[0]
-                            try:
-                                base_name = base_name.encode('utf-8').decode('utf-8')
-                            except:
-                                base_name = "audio_segment"
-
                             unique_id = uuid.uuid4().hex[:8]
                             segment_filename = f"{base_name}_seg{seg_idx}_{unique_id}.wav"
                             segment_path = os.path.join(output_dir, segment_filename)
