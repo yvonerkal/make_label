@@ -86,6 +86,16 @@ with st.sidebar:
     else:
         df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
 
+    # 上传标签文件
+    st.markdown("### 🏷️ 标签设置")
+    label_file = st.file_uploader("上传标签文件（每行一个标签）", type=["txt"])
+    if label_file:
+        species_list = [line.strip() for line in label_file.readlines() if line.strip()]
+        st.session_state["dynamic_species_list"] = species_list
+    elif "dynamic_species_list" in st.session_state:
+        species_list = st.session_state["dynamic_species_list"]
+    else:
+        species_list = ["北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍", "泽蛙", "其他"]
 
     # 下载区域
     st.markdown("### 📥 下载标注结果")
@@ -206,8 +216,9 @@ if uploaded_files:
 
         with col_labels:  # 右侧区域：标签选择 + 操作按钮
             st.markdown("### 物种标签（可多选）")  # 修复了标题格式
-            species_list = ["北方狭口蛙", "黑斑侧褶蛙", "金线蛙", "牛蛙", "饰纹姬蛙", "中华蟾蜍", "泽蛙", "其他"]
             current_key_prefix = f"{audio_file.name}_{seg_idx}"
+            search_query = st.text_input("🔍 搜索标签", value="", key=f"search_{current_key_prefix}")
+            filtered_species = [label for label in species_list if search_query.lower() in label.lower()]
 
 
             # 切换片段时重置复选框状态
@@ -222,7 +233,7 @@ if uploaded_files:
 
             # 渲染复选框并收集选中的标签
             selected_labels = []
-            for label in species_list:
+            for label in filtered_species:
                 key = f"label_checkbox_{label}_{current_key_prefix}"
                 if key not in st.session_state:
                     st.session_state[key] = False
