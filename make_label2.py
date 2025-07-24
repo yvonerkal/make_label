@@ -11,13 +11,18 @@ import zipfile
 from io import BytesIO
 from PIL import Image
 import uuid
-
+import tempfile
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
-    return librosa.load(file, sr=None)
-
+    # 使用临时文件避免Streamlit缓存锁定
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+        f.write(file.getbuffer())
+        temp_path = f.name
+    y, sr = librosa.load(temp_path, sr=None)
+    os.unlink(temp_path)  # 加载后立即删除临时文件
+    return y, sr
 
 @st.cache_data(show_spinner=False)
 def generate_spectrogram_image(y, sr):
@@ -32,7 +37,6 @@ def generate_spectrogram_image(y, sr):
     plt.close(fig)
     return Image.open(buf)
 
-
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -44,7 +48,6 @@ def generate_waveform_image(y, sr):
     buf.seek(0)
     plt.close(fig)
     return Image.open(buf)
-
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -63,10 +66,8 @@ if "audio_state" not in st.session_state:
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
 
-
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
-
 
 # ======== 标签管理组件 =========
 def label_management_component():
@@ -77,7 +78,8 @@ def label_management_component():
             submit_label = st.form_submit_button("加载标签")
             if submit_label and label_file:
                 try:
-                    species_list = [line.strip() for line in label_file.read().decode("utf-8").split("\n") if line.strip()]
+                    species_list = [line.strip() for line in label_file.read().decode("utf-8").split("\n") if
+                                    line.strip()]
                     if species_list:
                         st.session_state["dynamic_species_list"] = species_list
                         st.success(f"加载成功！共 {len(species_list)} 个标签")
@@ -87,9 +89,9 @@ def label_management_component():
                 except Exception as e:
                     st.error(f"错误：{str(e)}")
         st.markdown("#### 当前标签预览")
-        st.write(st.session_state["dynamic_species_list"][:5] + (["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
+        st.write(st.session_state["dynamic_species_list"][:5] + (
+            ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
     return st.session_state["dynamic_species_list"]
-
 
 # ======== 右侧标注标签组件 =========
 def annotation_labels_component(current_segment_key):
@@ -98,6 +100,7 @@ def annotation_labels_component(current_segment_key):
 
     with col_labels:
         st.markdown("### 物种标签（可多选）")
+
         if not species_list:
             st.warning("请先在左侧上传标签文件")
             return None, None
@@ -129,20 +132,35 @@ def annotation_labels_component(current_segment_key):
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
 
-
 # ======== 音频处理逻辑 =========
 def process_audio():
     audio_state = st.session_state.audio_state
-    output_dir = "uploaded_audios"
-    os.makedirs(output_dir, exist_ok=True)
+    
+    # 使用侧边栏输入自定义保存目录（增强灵活性）
+    with st.sidebar:
+        st.markdown("### 💾 保存设置")
+        output_dir = st.text_input("保存目录", "uploaded_audios")
+    
+    # 验证目录可写性
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        test_file = os.path.join(output_dir, ".permission_test")
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.unlink(test_file)
+    except Exception as e:
+        st.error(f"目录不可写：{output_dir} - {str(e)}")
+        return
+    
     csv_path = os.path.join(output_dir, "annotations.csv")
     
-    # 安全加载CSV（避免空文件或格式错误）
+    # 安全加载CSV（处理空文件或格式错误）
     try:
         df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
             columns=["filename", "segment_index", "start_time", "end_time", "labels"]
         )
-    except:
+    except Exception as e:
+        st.warning(f"CSV文件损坏，将创建新文件：{str(e)}")
         df_old = pd.DataFrame(columns=["filename", "segment_index", "start_time", "end_time", "labels"])
 
     with st.sidebar:
@@ -177,7 +195,14 @@ def process_audio():
 
     if audio_state["current_index"] < len(unprocessed):
         audio_file = unprocessed[audio_state["current_index"]]
-        y, sr = load_audio(audio_file)
+        
+        # 验证音频文件是否有效
+        try:
+            y, sr = load_audio(audio_file)
+        except Exception as e:
+            st.error(f"无法加载音频文件：{audio_file.name} - {str(e)}")
+            st.stop()
+            
         total_duration = librosa.get_duration(y=y, sr=sr)
         total_segments = int(np.ceil(total_duration / 5.0))
         seg_idx = audio_state["segment_info"].get(audio_file.name, {"current_seg": 0})["current_seg"]
@@ -194,8 +219,21 @@ def process_audio():
             st.subheader("🎧 播放当前片段")
             start_sec, end_sec = seg_idx * 5.0, min((seg_idx + 1) * 5.0, total_duration)
             segment_y = y[int(start_sec * sr):int(end_sec * sr)]
+            
+            # 检查片段是否有效
+            if len(segment_y) == 0:
+                st.warning("当前片段为空，自动跳至下一段")
+                if seg_idx + 1 < total_segments:
+                    audio_state["segment_info"][audio_file.name]["current_seg"] += 1
+                else:
+                    audio_state["processed_files"].add(audio_file.name)
+                    audio_state["current_index"] += 1
+                st.rerun()
+            
+            # 保存片段到内存
             audio_bytes = BytesIO()
             sf.write(audio_bytes, segment_y, sr, format='WAV')
+            audio_bytes.seek(0)
             st.audio(audio_bytes, format="audio/wav")
 
             col1, col2 = st.columns(2)
@@ -214,29 +252,33 @@ def process_audio():
                             st.warning("❗请至少选择一个标签")
                             return
 
-                        if not os.path.exists(output_dir):
-                            st.error(f"保存目录不存在：{output_dir}")
-                            return
-
-                        # 标记是否实际保存成功
-                        save_success = False
                         try:
-                            # 生成唯一文件名（确保不冲突）
+                            # 使用临时文件中转，避免直接写入目标位置
                             base_name = os.path.splitext(audio_file.name)[0]
+                            safe_filename = "".join([c for c in base_name if c.isalnum() or c in ['_', '-']])
                             unique_id = uuid.uuid4().hex[:8]
-                            segment_filename = f"{base_name}_seg{seg_idx}_{unique_id}.wav"
+                            segment_filename = f"{safe_filename}_seg{seg_idx}_{unique_id}.wav"
                             segment_path = os.path.join(output_dir, segment_filename)
-
-                            # 1. 保存音频片段（验证保存结果）
-                            if len(segment_y) == 0:
-                                st.error("音频片段为空，无法保存")
-                                return
-                            sf.write(segment_path, segment_y, sr)
+                            
+                            # 创建临时文件并写入
+                            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+                            temp_file.close()
+                            sf.write(temp_file.name, segment_y, sr)
+                            
+                            # 验证临时文件是否成功写入
+                            if not os.path.exists(temp_file.name):
+                                raise Exception("临时文件创建失败")
+                            
+                            # 移动文件到目标位置（原子操作，减少冲突）
+                            os.replace(temp_file.name, segment_path)
+                            
+                            # 验证最终文件是否存在
                             if not os.path.exists(segment_path):
-                                raise Exception("音频片段保存失败")
-
-                            # 2. 保存CSV（验证保存结果）
-                            clean_labels = [label.replace("/", "").replace("\\", "") for label in st.session_state.current_selected_labels]
+                                raise Exception(f"文件移动失败：{segment_path}")
+                            
+                            # 准备CSV条目
+                            clean_labels = [label.replace("/", "").replace("\\", "") for label in
+                                            st.session_state.current_selected_labels]
                             entry = {
                                 "filename": audio_file.name,
                                 "segment_index": segment_filename,
@@ -244,36 +286,37 @@ def process_audio():
                                 "end_time": round(end_sec, 3),
                                 "labels": ",".join(clean_labels)
                             }
+                            
+                            # 安全写入CSV（使用临时文件）
+                            temp_csv = tempfile.NamedTemporaryFile(delete=False, suffix='.csv')
+                            temp_csv.close()
                             df_combined = pd.concat([df_old, pd.DataFrame([entry])], ignore_index=True)
-                            df_combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
-                            if not os.path.exists(csv_path) or len(pd.read_csv(csv_path)) <= len(df_old):
-                                raise Exception("CSV文件保存失败")
-
-                            # 3. 状态更新（允许轻微同步延迟，不影响成功判定）
-                            current_segment_info = audio_state["segment_info"].get(audio_file.name, {})
-                            if current_segment_info.get("current_seg", 0) != seg_idx:
-                                st.warning("状态同步延迟，不影响标注结果")  # 改为警告，非错误
-
-                            # 更新状态（即使有延迟也执行）
+                            df_combined.to_csv(temp_csv.name, index=False, encoding="utf-8-sig")
+                            os.replace(temp_csv.name, csv_path)
+                            
+                            # 验证CSV写入成功
+                            if not os.path.exists(csv_path) or len(pd.read_csv(csv_path)) != len(df_combined):
+                                raise Exception("CSV写入失败")
+                            
+                            # 更新状态（最后执行，确保文件已保存）
                             if seg_idx + 1 < total_segments:
-                                audio_state["segment_info"][audio_file.name]["current_seg"] = seg_idx + 1
+                                audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                             else:
                                 audio_state["processed_files"].add(audio_file.name)
                                 audio_state["current_index"] += 1
-
-                            save_success = True  # 标记为成功
-
-                        except Exception as e:
-                            # 只在实际保存失败时显示错误
-                            if not save_success:
-                                st.error(f"保存失败：{str(e)}")
-                            else:
-                                st.warning(f"状态更新警告：{str(e)}（标注已成功保存）")
-
-                        # 实际保存成功后，强制提示成功并刷新
-                        if save_success:
-                            st.success("标注已成功保存！")
+                            
+                            st.success(f"标注已保存：{segment_filename}")
                             st.rerun()
+                            
+                        except PermissionError as e:
+                            st.error(f"权限错误：无法写入文件 - {str(e)}")
+                        except FileNotFoundError as e:
+                            st.error(f"路径错误：文件或目录不存在 - {str(e)}")
+                        except Exception as e:
+                            st.error(f"保存失败：{str(e)}")
+                            # 打印详细错误堆栈（仅在调试模式下可见）
+                            import traceback
+                            st.write(traceback.format_exc())
 
                 with col_skip:
                     if st.button("跳过本段", key=f"skip_{current_segment_key}"):
@@ -288,7 +331,6 @@ def process_audio():
         st.success("🎉 所有音频标注完成！")
 
     st.session_state.audio_state = audio_state
-
 
 # ======== 主流程 =========
 if __name__ == "__main__":
