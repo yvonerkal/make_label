@@ -27,7 +27,8 @@ def generate_spectrogram_image(y, sr, play_pos=0.0):
     ax.set(title="Spectrogram (dB)")
     ax.set_xlim(0, librosa.get_duration(y=y, sr=sr))
     if play_pos > 0:
-        ax.axvline(x=play_pos, color='red', linestyle='--', linewidth=2)
+        ax.axvline(x=play_pos, color='red', linestyle='--', linewidth=2, label=f'播放位置: {play_pos:.2f}s')
+        ax.legend()
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
@@ -42,7 +43,8 @@ def generate_waveform_image(y, sr, play_pos=0.0):
     ax.set(title="Waveform")
     ax.set_xlim(0, librosa.get_duration(y=y, sr=sr))
     if play_pos > 0:
-        ax.axvline(x=play_pos, color='red', linestyle='--', linewidth=2)
+        ax.axvline(x=play_pos, color='red', linestyle='--', linewidth=2, label=f'播放位置: {play_pos:.2f}s')
+        ax.legend()
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
@@ -51,7 +53,7 @@ def generate_waveform_image(y, sr, play_pos=0.0):
     return Image.open(buf)
 
 
-# ======== Session 状态初始化（修复KeyError） =========
+# ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
     st.session_state["dynamic_species_list"] = []
 if "current_selected_labels" not in st.session_state:
@@ -67,26 +69,27 @@ if "audio_state" not in st.session_state:
     }
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
-# 播放状态（关键修复：确保包含segment_key）
 if "play_state" not in st.session_state:
     st.session_state.play_state = {
         "is_playing": False,
         "start_time": 0.0,
         "audio_duration": 0.0,
         "current_pos": 0.0,
-        "segment_key": ""  # 必须初始化这个键
+        "segment_key": "",
+        "last_refresh": 0.0  # 新增：记录上次刷新时间
     }
 else:
-    # 兼容旧状态：如果缺少segment_key则补充
     if "segment_key" not in st.session_state.play_state:
         st.session_state.play_state["segment_key"] = ""
+    if "last_refresh" not in st.session_state.play_state:
+        st.session_state.play_state["last_refresh"] = 0.0
 
 
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
 
 
-# ======== 播放控制回调函数 =========
+# ======== 播放控制函数 =========
 def toggle_play(current_segment_key, segment_duration):
     if st.session_state.play_state["segment_key"] != current_segment_key:
         st.session_state.play_state = {
@@ -94,7 +97,8 @@ def toggle_play(current_segment_key, segment_duration):
             "start_time": time.time(),
             "audio_duration": segment_duration,
             "current_pos": 0.0,
-            "segment_key": current_segment_key
+            "segment_key": current_segment_key,
+            "last_refresh": time.time()
         }
     else:
         if st.session_state.play_state["is_playing"]:
@@ -106,6 +110,7 @@ def toggle_play(current_segment_key, segment_duration):
         else:
             st.session_state.play_state["start_time"] = time.time() - st.session_state.play_state["current_pos"]
             st.session_state.play_state["is_playing"] = True
+    st.session_state.play_state["last_refresh"] = time.time()
 
 
 # ======== 标签管理组件 =========
@@ -246,44 +251,50 @@ def process_audio():
                 )
             with col_info:
                 if st.session_state.play_state["segment_key"] == current_segment_key:
-                    if st.session_state.play_state["is_playing"]:
-                        current_pos = min(
-                            time.time() - st.session_state.play_state["start_time"],
-                            segment_duration
-                        )
-                        st.session_state.play_state["current_pos"] = current_pos
-                        st.write(f"当前播放位置: {current_pos:.2f}s / {segment_duration:.2f}s")
-                    else:
-                        st.write(f"暂停位置: {st.session_state.play_state['current_pos']:.2f}s / {segment_duration:.2f}s")
+                    current_pos = min(
+                        time.time() - st.session_state.play_state["start_time"],
+                        segment_duration
+                    ) if st.session_state.play_state["is_playing"] else st.session_state.play_state["current_pos"]
+                    st.write(f"当前播放位置: {current_pos:.2f}s / {segment_duration:.2f}s")
                 else:
                     st.write(f"片段时长: {segment_duration:.2f}s")
 
             st.audio(audio_bytes, format="audio/wav", start_time=0, loop=False)
 
-            # 波形图（第一行）
-            st.markdown("#### 📈 波形图")
+            # 波形图和频谱图（带实时刷新）
             wave_placeholder = st.empty()
-            
-            # 频谱图（第二行）
-            st.markdown("#### 🎞️ 频谱图")
             spec_placeholder = st.empty()
 
+            # 计算当前播放位置
             current_pos = 0.0
             if st.session_state.play_state["segment_key"] == current_segment_key and st.session_state.play_state["is_playing"]:
                 current_pos = min(
                     time.time() - st.session_state.play_state["start_time"],
                     segment_duration
                 )
+                st.session_state.play_state["current_pos"] = current_pos
+
+                # 定时刷新（每0.1秒刷新一次，平衡流畅度和性能）
+                now = time.time()
+                if now - st.session_state.play_state["last_refresh"] > 0.1:
+                    st.session_state.play_state["last_refresh"] = now
+                    st.experimental_rerun()  # 强制刷新页面
+
+                # 播放结束后自动暂停
                 if current_pos >= segment_duration:
                     st.session_state.play_state["is_playing"] = False
                     st.session_state.play_state["current_pos"] = segment_duration
+                    st.experimental_rerun()
             elif st.session_state.play_state["segment_key"] == current_segment_key:
                 current_pos = st.session_state.play_state["current_pos"]
 
+            # 生成带红线的图表
             wave_img = generate_waveform_image(segment_y, sr, play_pos=current_pos)
+            wave_placeholder.markdown("#### 📈 波形图")
             wave_placeholder.image(wave_img, use_container_width=True)
-            
+
             spec_img = generate_spectrogram_image(segment_y, sr, play_pos=current_pos)
+            spec_placeholder.markdown("#### 🎞️ 频谱图")
             spec_placeholder.image(spec_img, use_container_width=True)
 
         with col_labels:
@@ -322,7 +333,7 @@ def process_audio():
                                 audio_state["current_index"] += 1
 
                             st.success(f"成功保存标注！文件: {segment_filename}")
-                            st.rerun()
+                            st.experimental_rerun()
 
                         except Exception as e:
                             st.error(f"保存失败: {str(e)}")
@@ -334,7 +345,7 @@ def process_audio():
                         else:
                             audio_state["processed_files"].add(audio_file.name)
                             audio_state["current_index"] += 1
-                        st.rerun()
+                        st.experimental_rerun()
 
     else:
         st.success("🎉 所有音频标注完成！")
