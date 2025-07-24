@@ -13,6 +13,7 @@ from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
 from matplotlib.widgets import RectangleSelector
+from matplotlib.patches import Rectangle
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
@@ -52,7 +53,8 @@ def get_full_pinyin(text):
 
 # ======== 交互式画框功能 =========
 class BoxAnnotator:
-    def __init__(self, ax, sr):
+    def __init__(self, fig, ax, sr):
+        self.fig = fig
         self.ax = ax
         self.sr = sr
         self.boxes = []
@@ -65,16 +67,40 @@ class BoxAnnotator:
             spancoords='pixels',
             interactive=True
         )
+        self.fig.canvas.mpl_connect('button_press_event', self.on_press)
+        self.fig.canvas.mpl_connect('motion_notify_event', self.on_motion)
+        self.fig.canvas.mpl_connect('button_release_event', self.on_release)
+    
+    def on_press(self, event):
+        if event.inaxes == self.ax:
+            self.start_point = (event.xdata, event.ydata)
+            self.current_rect = Rectangle(
+                (event.xdata, event.ydata), 0, 0,
+                linewidth=2, edgecolor='r', facecolor='none'
+            )
+            self.ax.add_patch(self.current_rect)
+    
+    def on_motion(self, event):
+        if hasattr(self, 'current_rect') and event.inaxes == self.ax:
+            width = event.xdata - self.start_point[0]
+            height = event.ydata - self.start_point[1]
+            self.current_rect.set_width(width)
+            self.current_rect.set_height(height)
+            self.fig.canvas.draw()
+    
+    def on_release(self, event):
+        if hasattr(self, 'current_rect') and event.inaxes == self.ax:
+            self.current_box = {
+                'start': min(self.start_point[0], event.xdata),
+                'end': max(self.start_point[0], event.xdata),
+                'low_freq': min(self.start_point[1], event.ydata),
+                'high_freq': max(self.start_point[1], event.ydata)
+            }
+            self.current_rect.remove()
+            del self.current_rect
     
     def on_select(self, eclick, erelease):
-        x1, y1 = eclick.xdata, eclick.ydata
-        x2, y2 = erelease.xdata, erelease.ydata
-        self.current_box = {
-            'start': min(x1, x2),
-            'end': max(x1, x2),
-            'low_freq': min(y1, y2),
-            'high_freq': max(y1, y2)
-        }
+        pass  # 保留原有接口
     
     def add_box(self, label):
         if self.current_box:
@@ -87,11 +113,11 @@ class BoxAnnotator:
     
     def draw_boxes(self):
         for box in self.boxes:
-            rect = plt.Rectangle(
+            rect = Rectangle(
                 (box['start'], box['low_freq']),
                 box['end'] - box['start'],
                 box['high_freq'] - box['low_freq'],
-                linewidth=2, edgecolor='r', facecolor='none'
+                linewidth=2, edgecolor='b', facecolor='none'
             )
             self.ax.add_patch(rect)
             self.ax.text(
@@ -103,6 +129,8 @@ class BoxAnnotator:
         if self.boxes:
             self.boxes.pop()
             self.ax.clear()
+            D = librosa.amplitude_to_db(np.abs(librosa.stft(self.y)), ref=np.max)
+            librosa.display.specshow(D, sr=self.sr, x_axis='time', y_axis='log', ax=self.ax)
             self.draw_boxes()
             return True
         return False
@@ -225,7 +253,8 @@ def spectral_annotation_component(y, sr, current_segment_key):
         
         # 初始化或获取画框工具
         if st.session_state.box_annotator is None:
-            st.session_state.box_annotator = BoxAnnotator(ax, sr)
+            st.session_state.box_annotator = BoxAnnotator(fig, ax, sr)
+            st.session_state.box_annotator.y = y  # 保存音频数据
         else:
             st.session_state.box_annotator.draw_boxes()
         
@@ -309,7 +338,7 @@ def process_audio():
 
     unprocessed = [f for f in uploaded_files if not (audio_state["segment_info"].get(f.name) and
                                                      audio_state["segment_info"][f.name]["current_seg"] >=
-                                                     audio_state["segment_info"][f.name]["total_seg"])]
+                                                     audio_state["segment_info"][f.name]["total_seg"]]
 
     if audio_state["current_index"] < len(unprocessed):
         audio_file = unprocessed[audio_state["current_index"]]
