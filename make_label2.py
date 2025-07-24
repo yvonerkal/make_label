@@ -88,6 +88,7 @@ def label_management_component():
                         st.session_state["dynamic_species_list"] = species_list
                         st.success(f"加载成功！共 {len(species_list)} 个标签")
                         st.session_state["label_file"] = None
+                        st.rerun()  # 立即刷新页面，更新标签显示
                     else:
                         st.error("标签文件为空")
                 except Exception as e:
