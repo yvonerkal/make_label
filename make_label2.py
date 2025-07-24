@@ -12,7 +12,7 @@ from io import BytesIO
 
 
 # ======== 工具函数 =========
-from PIL.Image import Image
+from PIL import Image
 
 
 @st.cache_data(show_spinner=False)
