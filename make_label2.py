@@ -27,22 +27,16 @@ def generate_spectrogram_data(y, sr):
     return D, times, frequencies
 
 def generate_spectrogram_image(D, times, frequencies):
-    """生成带坐标的频谱图（修复坐标轴范围设置）"""
+    """生成带坐标的频谱图（确保x/y轴范围明确）"""
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
-    
-    # 创建频谱图
     img = librosa.display.specshow(
         D, 
         sr=frequencies[-1]*2,  # 采样率=2*最高频率（奈奎斯特准则）
         x_axis='time', 
         y_axis='log',
-        # 移除xlim和ylim参数，改用set_xlim和set_ylim
     )
-    
-    # 正确设置坐标轴范围
     plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
     plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
-    
     plt.colorbar(format='%+2.0f dB')
     plt.title('频谱图（可画框标注）')
     plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
@@ -92,6 +86,8 @@ if "canvas_boxes" not in st.session_state:  # 存储带标签的画框：{像素
     st.session_state.canvas_boxes = []
 if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐标转换）
     st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
+if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
+    st.session_state.spec_image = None
 
 
 st.set_page_config(layout="wide")
@@ -129,7 +125,14 @@ def label_management_component():
 def spectral_annotation_component(y, sr, current_segment_key):
     # 生成频谱图数据（时间、频率范围）
     D, times, frequencies = generate_spectrogram_data(y, sr)
-    spec_image = generate_spectrogram_image(D, times, frequencies)
+    
+    # 缓存频谱图，避免重复生成
+    if st.session_state.spec_image is None:
+        spec_image = generate_spectrogram_image(D, times, frequencies)
+        st.session_state.spec_image = spec_image
+    else:
+        spec_image = st.session_state.spec_image
+    
     st.session_state.spec_params = {
         "times": times,  # 0-5秒的时间轴
         "frequencies": frequencies,  # 频率轴（0到sr/2）
@@ -142,6 +145,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.subheader("🎧 频谱图画框标注（点击画布绘制矩形）")
         
         # 显示画布（尺寸与频谱图严格一致）
+        # 改为update_streamlit=True，确保图像加载
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
@@ -151,36 +155,30 @@ def spectral_annotation_component(y, sr, current_segment_key):
             width=spec_image.width,    # 画布宽度=频谱图宽度
             drawing_mode="rect",       # 仅允许画矩形
             key=f"canvas_{current_segment_key}",
-            update_streamlit=False  # 关闭自动刷新，避免频繁重绘
+            update_streamlit=True,     # 启用自动更新
+            display_toolbar=True       # 显示工具栏
         )
         
-        # 手动触发画布更新（优化性能）
-        col_update, col_clear = st.columns(2)
-        with col_update:
-            if st.button("更新画框", key="update_canvas"):
-                # 解析画布上的所有矩形框
-                new_boxes = []
-                if canvas_result.json_data and "objects" in canvas_result.json_data:
-                    for obj in canvas_result.json_data["objects"]:
-                        if obj["type"] == "rect":
-                            new_boxes.append({
-                                "pixel": {  # 像素坐标（画布上的位置）
-                                    "left": obj["left"],
-                                    "top": obj["top"],
-                                    "width": obj["width"],
-                                    "height": obj["height"]
-                                },
-                                "label": None  # 初始无标签
-                            })
-                # 仅当框有变化时更新（避免重复刷新）
-                if new_boxes != [b["pixel"] for b in st.session_state.canvas_boxes]:
-                    st.session_state.canvas_boxes = new_boxes
-                    st.rerun()
+        # 处理画布上的画框
+        if canvas_result.json_data is not None:
+            st.session_state.canvas_boxes = [
+                {
+                    "pixel": {  # 像素坐标（画布上的位置）
+                        "left": obj["left"],
+                        "top": obj["top"],
+                        "width": obj["width"],
+                        "height": obj["height"]
+                    },
+                    "label": None  # 初始无标签
+                }
+                for obj in canvas_result.json_data["objects"]
+                if obj["type"] == "rect"
+            ]
         
-        with col_clear:
-            if st.button("清空所有框", key="clear_canvas"):
-                st.session_state.canvas_boxes = []
-                st.rerun()
+        # 添加刷新按钮，用于强制更新频谱图
+        if st.button("刷新频谱图", key="refresh_spec"):
+            st.session_state.spec_image = None
+            st.rerun()
         
         # 播放当前5秒音频片段
         audio_bytes = BytesIO()
@@ -322,6 +320,7 @@ def process_audio():
             audio_state["last_seg_idx"] != seg_idx):
             st.session_state.current_selected_labels = set()
             st.session_state.canvas_boxes = []
+            st.session_state.spec_image = None  # 重置频谱图缓存
             audio_state["last_audio_file"] = audio_file.name
             audio_state["last_seg_idx"] = seg_idx
 
@@ -370,6 +369,7 @@ def process_audio():
                 audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                 if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                     audio_state["processed_files"].add(audio_file.name)
+                st.session_state.spec_image = None  # 重置频谱图缓存
                 st.success(f"成功保存 {len(entries)} 个框标注！")
                 st.balloons()
                 st.rerun()
@@ -379,6 +379,7 @@ def process_audio():
                 audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                 if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                     audio_state["processed_files"].add(audio_file.name)
+                st.session_state.spec_image = None  # 重置频谱图缓存
                 st.rerun()
 
         else:
