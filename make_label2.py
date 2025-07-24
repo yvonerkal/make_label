@@ -12,6 +12,7 @@ from io import BytesIO
 from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
+from matplotlib.widgets import RectangleSelector
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
@@ -49,17 +50,62 @@ def get_pinyin_abbr(text):
 def get_full_pinyin(text):
     return ''.join(lazy_pinyin(text))
 
-def draw_rectangle(fig, ax, start_time, end_time, low_freq, high_freq, label=None):
-    """在频谱图上绘制矩形框"""
-    width = end_time - start_time
-    height = high_freq - low_freq
-    rect = plt.Rectangle((start_time, low_freq), width, height,
-                        linewidth=2, edgecolor='r', facecolor='none')
-    ax.add_patch(rect)
-    if label:
-        ax.text(start_time, high_freq, label, color='white', 
-               backgroundcolor='red', fontsize=10)
-    return fig
+# ======== 交互式画框功能 =========
+class BoxAnnotator:
+    def __init__(self, ax, sr):
+        self.ax = ax
+        self.sr = sr
+        self.boxes = []
+        self.current_box = None
+        self.rect_selector = RectangleSelector(
+            ax, self.on_select,
+            useblit=True,
+            button=[1],  # 左键
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=True
+        )
+    
+    def on_select(self, eclick, erelease):
+        x1, y1 = eclick.xdata, eclick.ydata
+        x2, y2 = erelease.xdata, erelease.ydata
+        self.current_box = {
+            'start': min(x1, x2),
+            'end': max(x1, x2),
+            'low_freq': min(y1, y2),
+            'high_freq': max(y1, y2)
+        }
+    
+    def add_box(self, label):
+        if self.current_box:
+            self.current_box['label'] = label
+            self.boxes.append(self.current_box)
+            self.draw_boxes()
+            self.current_box = None
+            return True
+        return False
+    
+    def draw_boxes(self):
+        for box in self.boxes:
+            rect = plt.Rectangle(
+                (box['start'], box['low_freq']),
+                box['end'] - box['start'],
+                box['high_freq'] - box['low_freq'],
+                linewidth=2, edgecolor='r', facecolor='none'
+            )
+            self.ax.add_patch(rect)
+            self.ax.text(
+                box['start'], box['high_freq'], box['label'],
+                color='white', backgroundcolor='red', fontsize=10
+            )
+    
+    def remove_last(self):
+        if self.boxes:
+            self.boxes.pop()
+            self.ax.clear()
+            self.draw_boxes()
+            return True
+        return False
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -77,10 +123,10 @@ if "audio_state" not in st.session_state:
     }
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
-if "spectral_boxes" not in st.session_state:
-    st.session_state.spectral_boxes = []
 if "annotation_mode" not in st.session_state:
     st.session_state.annotation_mode = "分段标注"
+if "box_annotator" not in st.session_state:
+    st.session_state.box_annotator = None
 
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
@@ -115,78 +161,8 @@ def label_management_component():
         )
     return st.session_state["dynamic_species_list"]
 
-# ======== 频谱图画框组件 ========
-def spectral_annotation_component(y, sr, current_segment_key):
-    """频谱图画框标注组件"""
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        # 生成交互式频谱图
-        fig, ax = plt.subplots(figsize=(10, 4))
-        D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
-        librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
-        ax.set(title="Spectrogram (Click and drag to annotate)")
-        
-        # 绘制已有标注框
-        for box in st.session_state.spectral_boxes:
-            draw_rectangle(fig, ax, box['start'], box['end'], 
-                          box['low_freq'], box['high_freq'], box['label'])
-        
-        st.pyplot(fig)
-        
-        # 音频播放器
-        audio_bytes = BytesIO()
-        sf.write(audio_bytes, y, sr, format='WAV')
-        st.audio(audio_bytes, format="audio/wav")
-        
-        # 画框控制
-        with st.expander("标注工具", expanded=True):
-            cols = st.columns(2)
-            with cols[0]:
-                start_time = st.slider("开始时间(s)", 0.0, 5.0, 0.0, 0.1, key=f"start_{current_segment_key}")
-                end_time = st.slider("结束时间(s)", 0.0, 5.0, 1.0, 0.1, key=f"end_{current_segment_key}")
-            with cols[1]:
-                low_freq = st.slider("最低频率(Hz)", 0, sr//2, 1000, 100, key=f"low_{current_segment_key}")
-                high_freq = st.slider("最高频率(Hz)", 0, sr//2, 3000, 100, key=f"high_{current_segment_key}")
-            
-            if st.button("添加标注框", key=f"add_{current_segment_key}"):
-                if end_time <= start_time:
-                    st.error("结束时间必须大于开始时间")
-                elif high_freq <= low_freq:
-                    st.error("最高频率必须大于最低频率")
-                else:
-                    st.session_state.spectral_boxes.append({
-                        'start': start_time,
-                        'end': end_time,
-                        'low_freq': low_freq,
-                        'high_freq': high_freq,
-                        'label': ""
-                    })
-                    st.rerun()
-            
-            if st.button("撤销上一个", key=f"undo_{current_segment_key}") and st.session_state.spectral_boxes:
-                st.session_state.spectral_boxes.pop()
-                st.rerun()
-    
-    with col2:
-        # 标签选择
-        if st.session_state.spectral_boxes:
-            st.markdown("### 标注框标签")
-            for i, box in enumerate(st.session_state.spectral_boxes):
-                if not box['label'] or st.session_state.get(f"label_changed_{i}"):
-                    box['label'] = st.selectbox(
-                        f"标注框 {i+1}",
-                        st.session_state["dynamic_species_list"],
-                        key=f"box_label_{current_segment_key}_{i}"
-                    )
-            
-            if st.button("保存标注", key=f"save_boxes_{current_segment_key}"):
-                return True
-    
-    return False
-
-# ======== 分段标注组件 ========
-def segment_annotation_component(current_segment_key):
+# ======== 右侧标注标签组件 =========
+def annotation_labels_component(current_segment_key):
     species_list = st.session_state["dynamic_species_list"]
     col_labels = st.container()
 
@@ -235,6 +211,61 @@ def segment_annotation_component(current_segment_key):
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
 
+# ======== 频谱图画框组件 ========
+def spectral_annotation_component(y, sr, current_segment_key):
+    col_main, col_labels = st.columns([3, 1])
+    
+    with col_main:
+        st.subheader("🎧 频谱图画框标注")
+        
+        # 创建频谱图
+        fig, ax = plt.subplots(figsize=(10, 4))
+        D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
+        librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='log', ax=ax)
+        
+        # 初始化或获取画框工具
+        if st.session_state.box_annotator is None:
+            st.session_state.box_annotator = BoxAnnotator(ax, sr)
+        else:
+            st.session_state.box_annotator.draw_boxes()
+        
+        st.pyplot(fig)
+        
+        # 音频播放器
+        audio_bytes = BytesIO()
+        sf.write(audio_bytes, y, sr, format='WAV')
+        st.audio(audio_bytes, format="audio/wav")
+        
+        # 画框操作按钮
+        if st.button("确认当前框选区域"):
+            if st.session_state.current_selected_labels:
+                label = list(st.session_state.current_selected_labels)[0]  # 取第一个选中的标签
+                if st.session_state.box_annotator.add_box(label):
+                    st.success("标注框已添加！")
+                    st.rerun()
+                else:
+                    st.warning("请先用鼠标在频谱图上框选区域")
+            else:
+                st.warning("请先在右侧选择标签")
+        
+        if st.button("撤销上一个标注框"):
+            if st.session_state.box_annotator.remove_last():
+                st.rerun()
+    
+    with col_labels:
+        # 使用原有的标签选择组件
+        col_save, col_skip = annotation_labels_component(current_segment_key)
+        
+        if st.session_state.box_annotator and st.session_state.box_annotator.boxes:
+            st.markdown("### 当前标注框")
+            for i, box in enumerate(st.session_state.box_annotator.boxes):
+                st.write(f"{i+1}. {box['label']} ({box['start']:.2f}s-{box['end']:.2f}s, {box['low_freq']:.0f}-{box['high_freq']:.0f}Hz)")
+        
+        if col_save and st.button("保存所有标注", key=f"save_boxes_{current_segment_key}"):
+            return True
+    
+    return False
+
 # ======== 音频处理主逻辑 ========
 def process_audio():
     audio_state = st.session_state.audio_state
@@ -242,7 +273,6 @@ def process_audio():
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
-    # 安全加载CSV
     try:
         df_old = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(
             columns=["filename", "segment_index", "start_time", "end_time", "labels", "low_freq", "high_freq"]
@@ -291,7 +321,7 @@ def process_audio():
 
         if (audio_state["last_audio_file"] != audio_file.name or audio_state["last_seg_idx"] != seg_idx):
             st.session_state.current_selected_labels = set()
-            st.session_state.spectral_boxes = []
+            st.session_state.box_annotator = None
             audio_state["last_audio_file"], audio_state["last_seg_idx"] = audio_file.name, seg_idx
 
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
@@ -318,7 +348,7 @@ def process_audio():
                     st.image(generate_spectrogram_image(segment_y, sr), caption="频谱图", use_container_width=True)
 
             with col_labels:
-                col_save, col_skip = segment_annotation_component(current_segment_key)
+                col_save, col_skip = annotation_labels_component(current_segment_key)
 
                 if col_save and st.button("保存本段标注", key=f"save_{current_segment_key}"):
                     save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir)
@@ -336,8 +366,8 @@ def process_audio():
 
     st.session_state.audio_state = audio_state
 
+# ======== 保存函数 ========
 def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir):
-    """保存分段标注结果"""
     csv_path = os.path.join(output_dir, "annotations.csv")
     
     try:
@@ -378,7 +408,6 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
 
         combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
-        # 更新状态
         audio_state = st.session_state.audio_state
         if audio_file.name not in audio_state["segment_info"]:
             audio_state["segment_info"][audio_file.name] = {
@@ -402,11 +431,10 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
         st.error(f"保存过程中发生错误: {str(e)}")
 
 def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, segment_y, sr, output_dir):
-    """保存频谱图标注结果"""
     csv_path = os.path.join(output_dir, "annotations.csv")
     
     try:
-        if not st.session_state.spectral_boxes:
+        if not st.session_state.box_annotator or not st.session_state.box_annotator.boxes:
             st.warning("请至少添加一个标注框")
             return
 
@@ -417,11 +445,7 @@ def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, s
             base_name = "audio_segment"
 
         entries = []
-        for i, box in enumerate(st.session_state.spectral_boxes):
-            if not box['label']:
-                st.error(f"请为标注框{i+1}选择标签")
-                return
-
+        for i, box in enumerate(st.session_state.box_annotator.boxes):
             # 计算实际时间位置
             abs_start = segment_start + box['start']
             abs_end = segment_start + box['end']
@@ -470,7 +494,8 @@ def save_spectral_annotations(audio_file, seg_idx, segment_start, segment_end, s
             audio_state["current_index"] += 1
 
         st.session_state.audio_state = audio_state
-        st.session_state.spectral_boxes = []
+        st.session_state.box_annotator = None
+        st.session_state.current_selected_labels = set()
         st.success(f"成功保存 {len(entries)} 个标注框！")
         st.balloons()
         st.rerun()
