@@ -1,8 +1,9 @@
-streamlit
-streamlit-drawable-canvas
-pandas
-numpy
-librosa
-matplotlib
-pydub
-scipy
+streamlit==1.47.0
+librosa>=0.10.1  # 较新版本的librosa依赖兼容的numba
+numba>=0.59.0    # 支持Python 3.13的numba版本
+soundfile>=0.12.1
+matplotlib>=3.7.0
+pandas>=2.1.0
+numpy>=1.26.0
+Pillow>=10.0.0
+zipfile36>=0.1.3
