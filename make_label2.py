@@ -12,66 +12,48 @@ from io import BytesIO
 from PIL import Image
 import uuid
 import time
-from streamlit.components.v1 import declare_component, html  # 导入组件相关库
-import base64  # 用于音频文件编码
+import base64
+from streamlit.components.v1 import html  # 仅使用html组件
 
-# 声明自定义组件（前端代码嵌入）
-audio_player_component = declare_component(
-    "audio_player",
-    # 前端HTML/JavaScript代码（直接嵌入，无需额外文件）
-    html="""
-    <script>
-    // 接收Streamlit传递的参数（音频数据、初始进度等）
-    const data = window.streamlitData;
-    const audioBase64 = data.audio_base64;
-    const segmentDuration = data.segment_duration;
-    
-    // 创建音频元素和进度显示区域
-    const container = document.createElement("div");
-    const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
-    const progressDiv = document.createElement("div");
-    container.appendChild(audio);
-    container.appendChild(progressDiv);
-    
-    // 实时监听播放进度
-    audio.addEventListener('timeupdate', () => {
-        const currentPos = audio.currentTime;
-        progressDiv.textContent = `当前进度: ${currentPos.toFixed(2)}s / ${segmentDuration.toFixed(2)}s`;
+
+# ======== 自定义音频播放器组件（用html直接渲染） =========
+def audio_player_component(audio_base64, segment_duration, key):
+    """直接渲染包含音频播放和进度监听的HTML/JavaScript代码"""
+    # 前端代码模板（嵌入JavaScript监听播放进度）
+    html_code = f"""
+    <div>
+        <audio id="audio_{key}" controls>
+            <source src="data:audio/wav;base64,{audio_base64}" type="audio/wav">
+        </audio>
+        <div id="progress_{key}">当前进度: 0.00s / {segment_duration:.2f}s</div>
         
-        // 将进度发送给Streamlit后端
-        window.parent.postMessage({
-            type: "streamlit:setComponentValue",
-            value: currentPos  // 发送当前播放位置（秒）
-        }, "*");
-    });
-    
-    // 播放结束后发送最终进度
-    audio.addEventListener('ended', () => {
-        window.parent.postMessage({
-            type: "streamlit:setComponentValue",
-            value: segmentDuration
-        }, "*");
-    });
-    
-    // 添加播放/暂停按钮
-    const playBtn = document.createElement("button");
-    playBtn.textContent = "▶️ 播放";
-    playBtn.onclick = () => {
-        if (audio.paused) {
-            audio.play();
-            playBtn.textContent = "⏸️ 暂停";
-        } else {
-            audio.pause();
-            playBtn.textContent = "▶️ 播放";
-        }
-    };
-    container.appendChild(playBtn);
-    
-    // 将组件添加到页面
-    document.body.appendChild(container);
-    </script>
+        <script>
+            // 获取音频元素和进度显示区域
+            const audio = document.getElementById("audio_{key}");
+            const progressDiv = document.getElementById("progress_{key}");
+            
+            // 监听播放进度更新事件
+            audio.addEventListener('timeupdate', () => {{
+                const currentPos = audio.currentTime;
+                progressDiv.textContent = `当前进度: ${currentPos.toFixed(2)}s / {segment_duration:.2f}s`;
+                
+                // 通过Streamlit的组件通信机制发送进度
+                window.parent.postMessage({{
+                    type: "streamlit:setComponentValue",
+                    value: currentPos,
+                    origin: window.location.origin
+                }}, "*");
+            }});
+        </script>
+    </div>
     """
-)
+    
+    # 渲染HTML并返回进度值
+    return html(
+        html_code,
+        height=100,  # 组件高度
+        key=key
+    )
 
 
 # ======== 工具函数（带红线绘制） =========
@@ -124,11 +106,11 @@ if "audio_state" not in st.session_state:
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
 if "current_play_pos" not in st.session_state:
-    st.session_state.current_play_pos = 0.0  # 存储前端传来的实时进度
+    st.session_state.current_play_pos = 0.0
 
 
 st.set_page_config(layout="wide")
-st.title("🐸 青蛙音频标注工具（Streamlit + 自定义组件）")
+st.title("🐸 青蛙音频标注工具（带实时红线）")
 
 
 # ======== 标签管理组件（保持不变） =========
@@ -193,7 +175,7 @@ def annotation_labels_component(current_segment_key):
         return col_save, col_skip
 
 
-# ======== 音频处理逻辑（集成自定义组件） =========
+# ======== 音频处理逻辑（集成修正后的组件） =========
 def process_audio():
     audio_state = st.session_state.audio_state
     output_dir = "uploaded_audios"
@@ -255,32 +237,32 @@ def process_audio():
         if (audio_state["last_audio_file"] != audio_file.name or audio_state["last_seg_idx"] != seg_idx):
             st.session_state.current_selected_labels = set()
             audio_state["last_audio_file"], audio_state["last_seg_idx"] = audio_file.name, seg_idx
-            st.session_state.current_play_pos = 0.0  # 重置红线位置
+            st.session_state.current_play_pos = 0.0
 
         st.header(f"标注音频: {audio_file.name} - 第 {seg_idx + 1}/{total_segments} 段")
         col_main, col_labels = st.columns([3, 1])
 
         with col_main:
-            st.subheader("🎧 播放当前片段（红线将实时跟随）")
+            st.subheader("🎧 播放当前片段（红线实时跟随）")
             
-            # 1. 音频文件转换为Base64（供前端组件播放）
+            # 1. 音频转换为Base64供前端播放
             audio_bytes = BytesIO()
             sf.write(audio_bytes, segment_y, sr, format='WAV')
             audio_bytes.seek(0)
             audio_base64 = base64.b64encode(audio_bytes.read()).decode('utf-8')
 
-            # 2. 渲染自定义音频组件，获取实时进度
+            # 2. 渲染自定义音频播放器，获取实时进度
             current_pos = audio_player_component(
                 audio_base64=audio_base64,
                 segment_duration=segment_duration,
-                key=f"audio_component_{current_segment_key}"
+                key=f"audio_{current_segment_key}"
             )
 
-            # 3. 更新进度状态（前端传来新进度时）
+            # 3. 更新红线位置（使用前端传来的进度）
             if current_pos is not None:
-                st.session_state.current_play_pos = min(current_pos, segment_duration)
+                st.session_state.current_play_pos = min(float(current_pos), segment_duration)
 
-            # 4. 显示带红线的图表（基于实时进度）
+            # 4. 显示带红线的图表
             st.markdown("#### 📈 波形图")
             wave_img = generate_waveform_image(segment_y, sr, st.session_state.current_play_pos)
             st.image(wave_img, use_container_width=True)
@@ -300,7 +282,6 @@ def process_audio():
                                 st.warning("❗请至少选择一个标签")
                                 return
 
-                            os.makedirs(output_dir, exist_ok=True)
                             base_name = os.path.splitext(audio_file.name)[0]
                             unique_id = uuid.uuid4().hex[:8]
                             segment_filename = f"{base_name}_seg{seg_idx}_{unique_id}.wav"
