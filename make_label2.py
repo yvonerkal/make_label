@@ -124,16 +124,20 @@ def annotation_labels_component(current_segment_key):
             ]
         filtered_species = st.session_state.filtered_labels_cache[cache_key]
 
-        # 显示标签选择框并同步状态
+        # 显示标签选择框
         for label in filtered_species:
             key = f"label_{label}_{current_segment_key}"
-            is_selected = label in st.session_state.current_selected_labels
-            if st.checkbox(label, key=key, value=is_selected):
-                if label not in st.session_state.current_selected_labels:
-                    st.session_state.current_selected_labels.add(label)
+            # 使用 session_state 来跟踪复选框状态
+            if key not in st.session_state:
+                st.session_state[key] = label in st.session_state.current_selected_labels
+
+            # 显示复选框并更新状态
+            if st.checkbox(label, key=key, value=st.session_state[key]):
+                st.session_state.current_selected_labels.add(label)
+                st.session_state[key] = True
             else:
-                if label in st.session_state.current_selected_labels:
-                    st.session_state.current_selected_labels.discard(label)
+                st.session_state.current_selected_labels.discard(label)
+                st.session_state[key] = False
 
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
@@ -152,9 +156,9 @@ def annotation_labels_component(current_segment_key):
                     if st.button(f"× {label}", key=f"remove_{label}_{current_segment_key}"):
                         # 从已选集合中移除
                         st.session_state.current_selected_labels.discard(label)
-                        # 更新上方复选框状态
+                        # 更新复选框状态
                         st.session_state[f"label_{label}_{current_segment_key}"] = False
-                        st.rerun()
+                        st.experimental_rerun()
                 col_index = (col_index + 1) % 4
         else:
             st.info("尚未选择标签")
@@ -162,7 +166,6 @@ def annotation_labels_component(current_segment_key):
         st.markdown("### 🛠️ 操作")
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
-
 # ======== 音频处理逻辑 =========
 def process_audio():
     audio_state = st.session_state.audio_state
