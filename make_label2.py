@@ -14,7 +14,8 @@ from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
 import sys
-sys.setrecursionlimit(10000)  # 默认是1000，增加到10000
+sys.setrecursionlimit(10000)  # 增加递归深度限制
+
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
@@ -147,23 +148,31 @@ def spectral_annotation_component(y, sr, current_segment_key):
         "img_size": (spec_image.width, spec_image.height)  # 频谱图尺寸（像素）
     }
 
+    # 主区域布局：左侧为操作区（固定结构），右侧为标签区（可滚动）
     col_main, col_labels = st.columns([3, 1])
 
     with col_main:
         st.subheader("🎧 频谱图画框标注（点击画布绘制矩形）")
+        
+        # 1. 音频播放移到频谱图上方
+        st.markdown("#### 音频播放")
+        audio_bytes = BytesIO()
+        sf.write(audio_bytes, y, sr, format='WAV')
+        st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-        # 显示画布（尺寸与频谱图严格一致）
+        # 2. 频谱图画布区域
+        st.markdown("#### 频谱图（可绘制矩形框）")
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
             background_image=spec_image,
             height=spec_image.height,  # 画布高度=频谱图高度
-            width=spec_image.width,  # 画布宽度=频谱图宽度
-            drawing_mode="rect",  # 仅允许画矩形
+            width=spec_image.width,   # 画布宽度=频谱图宽度
+            drawing_mode="rect",      # 仅允许画矩形
             key=f"canvas_{current_segment_key}",
-            update_streamlit=True,  # 启用自动更新
-            display_toolbar=True  # 显示工具栏
+            update_streamlit=True,    # 启用自动更新
+            display_toolbar=True      # 显示工具栏
         )
 
         # 处理画布上的画框
@@ -182,34 +191,40 @@ def spectral_annotation_component(y, sr, current_segment_key):
                 if obj["type"] == "rect"
             ]
 
-        # 添加刷新按钮，用于强制更新频谱图
-        if st.button("刷新频谱图", key="refresh_spec"):
+        # 3. 刷新按钮和操作按钮组（固定在频谱图下方）
+        st.markdown("#### 操作")
+        button_row = st.columns([1, 1, 2])  # 调整按钮宽度比例
+        with button_row[0]:
+            refresh_clicked = st.button("刷新频谱图", key="refresh_spec")
+        with button_row[1]:
+            save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
+        with button_row[2]:
+            skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
+
+        # 处理刷新逻辑
+        if refresh_clicked:
             st.session_state.spec_image = None
             st.rerun()
 
-        # 播放当前5秒音频片段
-        audio_bytes = BytesIO()
-        sf.write(audio_bytes, y, sr, format='WAV')
-        st.audio(audio_bytes, format="audio/wav", start_time=0)
-
+    # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
         st.markdown("### 框标签管理")
         species_list = st.session_state["dynamic_species_list"]
         if not species_list:
             st.warning("请先在左侧上传标签文件")
-            return None, None
+            return save_clicked, skip_clicked
 
         # 显示所有画框并关联标签
         if st.session_state.canvas_boxes:
             for i, box in enumerate(st.session_state.canvas_boxes):
                 st.markdown(f"#### 框 {i + 1}")
 
-                # 1. 转换像素坐标为实际时间和频率
+                # 转换像素坐标为实际时间和频率
                 time_freq = pixel_to_time_freq(box["pixel"])
                 st.write(f"时间范围：{time_freq['start']:.2f} - {time_freq['end']:.2f} 秒")
                 st.write(f"频率范围：{time_freq['min']:.0f} - {time_freq['max']:.0f} Hz")
 
-                # 2. 为当前框选择标签
+                # 为当前框选择标签
                 search_query = st.text_input(
                     "搜索标签", "", key=f"box_search_{i}",
                     placeholder="输入中文/拼音首字母"
@@ -225,7 +240,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
                 else:
                     filtered = species_list
 
-                # 3. 选择标签并保存
+                # 选择标签并保存
                 selected_label = st.selectbox(
                     f"选择框 {i + 1} 的标签",
                     filtered,
@@ -237,9 +252,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
                     st.session_state.canvas_boxes[i]["label"] = selected_label
                     st.session_state.canvas_boxes = st.session_state.canvas_boxes  # 触发状态更新
 
-        # 操作按钮
-        col_save, col_skip = st.columns(2)
-        return col_save, col_skip
+    return save_clicked, skip_clicked
 
 
 # ======== 像素坐标→时间/频率转换函数 =========
@@ -258,7 +271,6 @@ def pixel_to_time_freq(pixel_coords):
     # 频率范围（y轴）：画布上→下 = 高频→低频（因为频谱图y轴是倒的）
     total_freq = frequencies[-1] - frequencies[0]  # 总频率范围（0到sr/2）
     freq_per_pixel = total_freq / img_height  # 每个像素对应的频率
-    # 注意：画布top越大，对应频谱图y轴越低（频率越低）
     max_freq = frequencies[-1] - pixel_coords["top"] * freq_per_pixel
     min_freq = max_freq - pixel_coords["height"] * freq_per_pixel
 
@@ -283,10 +295,9 @@ def process_audio():
             pd.DataFrame(columns=[
                 "filename", "segment_index", "box_id",
                 "start_time", "end_time", "min_freq", "max_freq", "label"
-            ]).to_csv(csv_path, index=False, encoding='utf_8_sig')  # 修改点1：添加编码
-        # 修改读取CSV部分
+            ]).to_csv(csv_path, index=False, encoding='utf_8_sig')
         try:
-            df_old = pd.read_csv(csv_path, encoding='utf_8_sig')  # 添加编码参数
+            df_old = pd.read_csv(csv_path, encoding='utf_8_sig')
         except Exception as e:
             st.error(f"CSV文件错误：{str(e)}")
             return
@@ -343,10 +354,10 @@ def process_audio():
 
         # 根据模式选择标注方式
         if st.session_state.annotation_mode == "频谱图画框":
-            col_save, col_skip = spectral_annotation_component(segment_y, sr, current_segment_key)
+            save_clicked, skip_clicked = spectral_annotation_component(segment_y, sr, current_segment_key)
 
             # 保存画框标注
-            if col_save and st.button("保存画框标注", key=f"save_boxes_{current_segment_key}"):
+            if save_clicked:
                 # 检查是否所有框都有标签
                 if not st.session_state.canvas_boxes:
                     st.warning("请先绘制至少一个框")
@@ -376,7 +387,6 @@ def process_audio():
                         "max_freq": time_freq["max"],
                         "label": box["label"]
                     })
-                # 修改点2：添加编码参数
                 pd.DataFrame(entries).to_csv(csv_path, mode='a', header=False, index=False, encoding='utf_8_sig')
 
                 # 更新状态，进入下一段
@@ -389,7 +399,7 @@ def process_audio():
                 st.rerun()
 
             # 跳过当前段
-            if col_skip and st.button("跳过本段", key=f"skip_box_{current_segment_key}"):
+            if skip_clicked:
                 audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                 if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                     audio_state["processed_files"].add(audio_file.name)
@@ -397,7 +407,7 @@ def process_audio():
                 st.rerun()
 
         else:
-            # 原有分段标注逻辑（保持不变）
+            # 原有分段标注逻辑
             col_main, col_labels = st.columns([3, 1])
             with col_main:
                 st.subheader("🎧 播放当前片段")
@@ -450,7 +460,6 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
         "max_freq": None,
         "label": ",".join(st.session_state.current_selected_labels)
     }
-    # 修改点3：添加编码参数
     pd.DataFrame([entry]).to_csv(csv_path, mode='a', header=False, index=False, encoding='utf_8_sig')
 
     audio_state = st.session_state.audio_state
