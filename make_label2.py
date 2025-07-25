@@ -37,7 +37,7 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-    plt.figure(figsize=(8, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
+    plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
         sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
@@ -59,7 +59,7 @@ def generate_spectrogram_image(D, times, frequencies):
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    plt.figure(figsize=(8, 6), dpi=100)
+    plt.figure(figsize=(12, 6), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('波形图')
     plt.tight_layout()
