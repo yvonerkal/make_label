@@ -160,6 +160,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
 
     with col_main:
         st.subheader("🎧 频谱图画框标注（点击画布绘制矩形）")
+        
 
         # 1. 音频播放移到频谱图上方
         st.markdown("#### 音频播放")
@@ -168,6 +169,8 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.audio(audio_bytes, format="audio/wav", start_time=0)
 
         # 2. 频谱图画布区域
+        # DEBUG: 临时显示频谱图
+        st.image(spec_image, caption="频谱图 DEBUG 显示", use_column_width=True)
         st.markdown("#### 频谱图（可绘制矩形框）")
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
