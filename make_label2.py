@@ -53,8 +53,8 @@ def generate_spectrogram_image(D, times, frequencies):
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
     buf.seek(0)
-    img = Image.open(buf)
     plt.close()
+    img = Image.open(buf)
     return img
 
 
