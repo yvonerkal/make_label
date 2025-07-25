@@ -139,11 +139,12 @@ def spectral_annotation_component(y, sr, current_segment_key):
     D, times, frequencies = generate_spectrogram_data(y, sr)
 
     # 缓存频谱图，避免重复生成
-    if st.session_state.spec_image is None:
-        spec_image = generate_spectrogram_image(D, times, frequencies)
-        st.session_state.spec_image = spec_image
-    else:
-        spec_image = st.session_state.spec_image
+    # if st.session_state.spec_image is None:
+    #     spec_image = generate_spectrogram_image(D, times, frequencies)
+    #     st.session_state.spec_image = spec_image
+    # else:
+    #     spec_image = st.session_state.spec_image
+    spec_image = generate_spectrogram_image(D, times, frequencies)
 
     st.session_state.spec_params = {
         "times": times,  # 0-5秒的时间轴
@@ -167,11 +168,10 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.markdown("#### 频谱图（可绘制矩形框）")
        
         canvas_result = st_canvas(
-            
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
-            background_image=st.image(spec_image),
+            background_image=spec_image,
             height=spec_image.height,  # 画布高度=频谱图高度
             width=spec_image.width,  # 画布宽度=频谱图宽度
             drawing_mode="rect",  # 仅允许画矩形
