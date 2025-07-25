@@ -13,7 +13,8 @@ from io import BytesIO
 from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
-
+import sys
+sys.setrecursionlimit(10000)  # 默认是1000，增加到10000
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
