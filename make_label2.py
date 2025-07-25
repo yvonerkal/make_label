@@ -18,16 +18,14 @@ import uuid
 from pypinyin import lazy_pinyin
 import sys
 
-# 设置Matplotlib中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei']  # Windows系统黑体
-plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-
 sys.setrecursionlimit(10000)  # 增加递归深度限制
+
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
+
 
 def generate_spectrogram_data(y, sr):
     """生成频谱图数据及坐标轴范围（用于坐标转换）"""
@@ -35,6 +33,7 @@ def generate_spectrogram_data(y, sr):
     times = librosa.times_like(D, sr=sr)  # 时间轴：0-5秒（5秒片段）
     frequencies = librosa.fft_frequencies(sr=sr)  # 频率轴：0到sr/2（奈奎斯特频率）
     return D, times, frequencies
+
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
@@ -58,6 +57,7 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.close()
     return img
 
+
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
     plt.figure(figsize=(12, 3), dpi=100)
@@ -70,11 +70,14 @@ def generate_waveform_image(y, sr):
     plt.close()
     return Image.open(buf)
 
+
 def get_pinyin_abbr(text):
     return ''.join([p[0] for p in lazy_pinyin(text) if p])
 
+
 def get_full_pinyin(text):
     return ''.join(lazy_pinyin(text))
+
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -97,11 +100,10 @@ if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐�
     st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
 if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
     st.session_state.spec_image = None
-if "audio_files" not in st.session_state:  # 存储上传的音频文件列表
-    st.session_state.audio_files = []
 
 st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
+
 
 # ======== 标签管理组件 =========
 def label_management_component():
@@ -112,14 +114,16 @@ def label_management_component():
             submit_label = st.form_submit_button("加载标签")
             if submit_label and label_file:
                 try:
-                    species_list = [line.strip() for line in label_file.read().decode("utf-8").split("\n") if line.strip()]
+                    species_list = [line.strip() for line in label_file.read().decode("utf-8").split("\n") if
+                                    line.strip()]
                     st.session_state["dynamic_species_list"] = species_list
                     st.success(f"加载成功！共 {len(species_list)} 个标签")
                     st.rerun()
                 except Exception as e:
                     st.error(f"错误：{str(e)}")
         st.markdown("#### 当前标签预览")
-        st.write(st.session_state["dynamic_species_list"][:5] + (["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
+        st.write(st.session_state["dynamic_species_list"][:5] + (
+            ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
 
         # 标注模式选择
         st.session_state.annotation_mode = st.radio(
@@ -127,20 +131,8 @@ def label_management_component():
             ["分段标注", "频谱图画框"],
             index=0 if st.session_state.get("annotation_mode") == "分段标注" else 1
         )
-        
-        # 显示已标注和未标注音频文件
-        if "audio_files" in st.session_state and st.session_state.audio_files:
-            with st.expander("✅ 已标注音频", expanded=True):
-                for f in st.session_state.audio_files:
-                    if f.name in st.session_state.audio_state["processed_files"]:
-                        st.write(f.name)
-            
-            with st.expander("🕓 未标注音频", expanded=True):
-                for f in st.session_state.audio_files:
-                    if f.name not in st.session_state.audio_state["processed_files"]:
-                        st.write(f.name)
-    
     return st.session_state["dynamic_species_list"]
+
 
 # ======== 频谱图画框+标签关联组件 =========
 def spectral_annotation_component(y, sr, current_segment_key):
@@ -246,7 +238,8 @@ def spectral_annotation_component(y, sr, current_segment_key):
                 if search_query:
                     q = search_query.lower()
                     for label in species_list:
-                        if q in label.lower() or q in get_pinyin_abbr(label).lower() or q in get_full_pinyin(label).lower():
+                        if q in label.lower() or q in get_pinyin_abbr(label).lower() or q in get_full_pinyin(
+                                label).lower():
                             filtered.append(label)
                 else:
                     filtered = species_list
@@ -264,6 +257,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
                     st.session_state.canvas_boxes = st.session_state.canvas_boxes  # 触发状态更新
 
     return save_clicked, skip_clicked
+
 
 # ======== 像素坐标→时间/频率转换函数 =========
 def pixel_to_time_freq(pixel_coords):
@@ -291,6 +285,7 @@ def pixel_to_time_freq(pixel_coords):
         "max": round(min(frequencies[-1], max_freq), 1)
     }
 
+
 # ======== 音频处理主逻辑 =========
 def process_audio():
     audio_state = st.session_state.audio_state
@@ -316,15 +311,7 @@ def process_audio():
 
     with st.sidebar:
         st.markdown("### 🎵 音频上传")
-        # 安全地处理文件上传
         uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True, key="audio_files")
-        
-        # 只在首次上传或文件变化时更新session state
-        if uploaded_files:
-            current_file_names = {f.name for f in uploaded_files}
-            if 'audio_files' not in st.session_state or {f.name for f in st.session_state.audio_files} != current_file_names:
-                st.session_state.audio_files = uploaded_files
-        
         st.markdown("### 📥 下载结果")
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
@@ -433,10 +420,10 @@ def process_audio():
                 st.audio(audio_bytes, format="audio/wav")
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_column_width=True)
+                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_container_width=True)
                 with col2:
                     st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
-                             use_column_width=True)
+                             use_container_width=True)
 
             with col_labels:
                 col_save, col_skip = annotation_labels_component(current_segment_key)
@@ -452,6 +439,7 @@ def process_audio():
         st.success("🎉 所有音频标注完成！")
 
     st.session_state.audio_state = audio_state
+
 
 # ======== 分段标注保存函数 =========
 def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir):
@@ -480,11 +468,13 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
 
     audio_state = st.session_state.audio_state
     audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-    if audio_state["segment_info"][audio_file.name]["current_seg"] >= audio_state["segment_info"][audio_file.name]["total_seg"]:
+    if audio_state["segment_info"][audio_file.name]["current_seg"] >= audio_state["segment_info"][audio_file.name][
+        "total_seg"]:
         audio_state["processed_files"].add(audio_file.name)
     st.success(f"成功保存分段标注！")
     st.balloons()
     st.rerun()
+
 
 # ======== 原有分段标注标签组件 =========
 def annotation_labels_component(current_segment_key):
@@ -526,6 +516,7 @@ def annotation_labels_component(current_segment_key):
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
+
 
 if __name__ == "__main__":
     label_management_component()
