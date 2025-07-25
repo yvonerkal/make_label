@@ -527,18 +527,21 @@ def annotation_labels_component(current_segment_key):
         
         # 已选标签显示及删除功能（优化核心）
         if st.session_state.current_selected_labels:
-            # 使用流式布局避免标签过多导致换行问题
-            cols = st.columns(len(st.session_state.current_selected_labels), gap="small")
-            for i, label in enumerate(st.session_state.current_selected_labels):
-                with cols[i]:
-                    # 使用on_click回调函数删除标签，替代st.rerun()
-                    st.button(
-                        f"❌ {label}",
-                        key=f"remove_{label}_{current_segment_key}",
-                        help=f"删除 {label}",
-                        on_click=remove_label,  # 点击时触发删除函数
-                        args=(label,)  # 传递要删除的标签
-                    )
+            # 优化水平布局，每5个标签一行，避免过宽
+            labels = list(st.session_state.current_selected_labels)
+            max_labels_per_row = 5
+            for i in range(0, len(labels), max_labels_per_row):
+                row_labels = labels[i:i+max_labels_per_row]
+                cols = st.columns(len(row_labels), gap="small")
+                for j, label in enumerate(row_labels):
+                    with cols[j]:
+                        st.button(
+                            f"❌ {label}",
+                            key=f"remove_{label}_{current_segment_key}_{i}_{j}",
+                            help=f"删除 {label}",
+                            on_click=remove_label,
+                            args=(label,)
+                        )
         else:
             st.info("尚未选择标签")
 
