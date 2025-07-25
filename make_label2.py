@@ -82,33 +82,33 @@ def get_full_pinyin(text):
 
 
 # ======== Session 状态初始化 =========
-if "dynamic_species_list" not in st.session_state:
-    st.session_state["dynamic_species_list"] = []
-if "current_selected_labels" not in st.session_state:
-    st.session_state.current_selected_labels = set()
-if "audio_state" not in st.session_state:
-    st.session_state.audio_state = {
-        "processed_files": set(),
-        "current_index": 0,
-        "segment_info": {},
-        "last_audio_file": None,
-        "last_seg_idx": -1,
-    }
-if "filtered_labels_cache" not in st.session_state:
-    st.session_state.filtered_labels_cache = {}
-if "canvas_boxes" not in st.session_state:  # 存储带标签的画框：{像素坐标, 时间频率, 标签}
-    st.session_state.canvas_boxes = []
-if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐标转换）
-    st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
-if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
-    st.session_state.spec_image = None
-if "spec_width" not in st.session_state:  # 缓存频谱图宽度
-    st.session_state.spec_width = 0
-if "spec_height" not in st.session_state:  # 缓存频谱图高度
-    st.session_state.spec_height = 0
-
-st.set_page_config(layout="wide")
-st.title("🐸 青蛙音频标注工具")
+def init_session_state():
+    if "dynamic_species_list" not in st.session_state:
+        st.session_state["dynamic_species_list"] = []
+    if "current_selected_labels" not in st.session_state:
+        st.session_state.current_selected_labels = set()
+    if "audio_state" not in st.session_state:
+        st.session_state.audio_state = {
+            "processed_files": set(),
+            "current_index": 0,
+            "segment_info": {},
+            "last_audio_file": None,
+            "last_seg_idx": -1,
+        }
+    if "filtered_labels_cache" not in st.session_state:
+        st.session_state.filtered_labels_cache = {}
+    if "canvas_boxes" not in st.session_state:  # 存储带标签的画框：{像素坐标, 时间频率, 标签}
+        st.session_state.canvas_boxes = []
+    if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐标转换）
+        st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
+    if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
+        st.session_state.spec_image = None
+    if "spec_width" not in st.session_state:  # 缓存频谱图宽度
+        st.session_state.spec_width = 0
+    if "spec_height" not in st.session_state:  # 缓存频谱图高度
+        st.session_state.spec_height = 0
+    if "is_generating_spec" not in st.session_state:  # 标记是否正在生成频谱图
+        st.session_state.is_generating_spec = False
 
 
 # ======== 标签管理组件 =========
@@ -145,16 +145,28 @@ def spectral_annotation_component(y, sr, current_segment_key):
     # 生成频谱图数据（时间、频率范围）
     D, times, frequencies = generate_spectrogram_data(y, sr)
 
-    # 缓存频谱图，避免重复生成
+    # 确保不会重复生成频谱图
+    if st.session_state.spec_image is None and not st.session_state.is_generating_spec:
+        st.session_state.is_generating_spec = True
+        try:
+            spec_image, img_width, img_height = generate_spectrogram_image(D, times, frequencies)
+            st.session_state.spec_image = spec_image
+            st.session_state.spec_width = img_width
+            st.session_state.spec_height = img_height
+        finally:
+            st.session_state.is_generating_spec = False
+
+    # 等待频谱图生成完成
     if st.session_state.spec_image is None:
-        spec_image, img_width, img_height = generate_spectrogram_image(D, times, frequencies)
-        st.session_state.spec_image = spec_image
-        st.session_state.spec_width = img_width
-        st.session_state.spec_height = img_height
-    else:
-        spec_image = st.session_state.spec_image
-        img_width = st.session_state.spec_width
-        img_height = st.session_state.spec_height
+        st.info("正在生成频谱图，请稍候...")
+        return False, False
+
+    # 确保图像尺寸有效
+    img_width = st.session_state.spec_width
+    img_height = st.session_state.spec_height
+    if img_width <= 0 or img_height <= 0:
+        st.error("频谱图尺寸无效，请刷新页面重试")
+        return False, False
 
     st.session_state.spec_params = {
         "times": times,  # 0-5秒的时间轴
@@ -182,7 +194,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
-            background_image=spec_image,
+            background_image=st.session_state.spec_image,
             height=img_height,  # 使用实际图像高度
             width=img_width,    # 使用实际图像宽度
             drawing_mode="rect",      # 仅允许画矩形
@@ -535,5 +547,6 @@ def annotation_labels_component(current_segment_key):
 
 
 if __name__ == "__main__":
+    init_session_state()
     label_management_component()
     process_audio()
