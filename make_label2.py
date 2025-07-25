@@ -13,6 +13,7 @@ from io import BytesIO
 from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
+import base64
 import sys
 
 sys.setrecursionlimit(10000)
@@ -53,7 +54,12 @@ def generate_spectrogram_image(D, times, frequencies):
     buf.seek(0)
     img = Image.open(buf).convert('RGB')
     plt.close(fig)
-    return img
+    
+    # 转换为base64以便嵌入HTML
+    buffered = io.BytesIO()
+    img.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return img_str, img.width, img.height
 
 
 @st.cache_data(show_spinner=False)
@@ -103,12 +109,21 @@ st.set_page_config(layout="wide")
 st.markdown("""
 <style>
     .stCanvas {
-        position: relative !important;
-        z-index: 1 !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 100 !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
-    .stImage {
+    .canvas-container {
         position: relative !important;
-        z-index: 0 !important;
+        display: inline-block !important;
+        width: 900px !important;  /* 固定宽度 */
+        height: 300px !important; /* 固定高度 */
+    }
+    .canvas-wrapper {
+        margin-bottom: 20px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -145,17 +160,8 @@ def label_management_component():
 # ======== 频谱图画框+标签关联组件 =========
 def spectral_annotation_component(y, sr, current_segment_key):
     D, times, frequencies = generate_spectrogram_data(y, sr)
-    spec_image = generate_spectrogram_image(D, times, frequencies)
+    img_str, img_width, img_height = generate_spectrogram_image(D, times, frequencies)
     
-    # 临时显示频谱图，确认图像生成正常
-    # st.subheader("生成的频谱图（调试）")
-    # st.image(spec_image, use_column_width=False)
-
-    img_width, img_height = spec_image.size
-    if img_width <= 0 or img_height <= 0:
-        st.error("频谱图生成失败")
-        return False, False
-
     st.session_state.spec_params = {
         "times": times,
         "frequencies": frequencies,
@@ -173,8 +179,18 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.audio(audio_bytes, format="audio/wav", start_time=0)
 
         st.markdown("#### 频谱图（可绘制矩形框）")
-        # 修复：使用use_column_width参数替代use_container_width
-        st.image(spec_image, use_column_width=False, caption="频谱图底图")
+        
+        # 创建自定义HTML容器，确保图像和画布重叠
+        st.markdown(f"""
+        <div class="canvas-wrapper">
+            <div class="canvas-container">
+                <img src="data:image/png;base64,{img_str}" style="width:100%;height:100%;" alt="频谱图">
+                <div id="canvas-container-{current_segment_key}"></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 创建画布，设置为绝对定位并与图像重叠
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
@@ -402,7 +418,7 @@ def process_audio():
                 with col1:
                     st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_column_width=True)
                 with col2:
-                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
+                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr))[0], caption="频谱图",
                              use_column_width=True)
 
             with col_labels:
