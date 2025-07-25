@@ -1,3 +1,6 @@
+# 保存、下载数据的方式
+# 频谱图显示问题
+# 保存分割数据时，开始时间点往前，结束时间点往后取整
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import librosa
@@ -14,6 +17,7 @@ from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
 import sys
+
 sys.setrecursionlimit(10000)  # 增加递归深度限制
 
 
@@ -33,36 +37,28 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-    # 固定尺寸，便于后续坐标转换
-    fig = plt.figure(figsize=(12, 6), dpi=100)
+    fig, ax = plt.subplots(figsize=(12, 6), dpi=100)  # 固定尺寸
     img = librosa.display.specshow(
         D,
-        sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
+        sr=frequencies[-1] * 2,
         x_axis='time',
         y_axis='log',
+        ax=ax
     )
-    plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
-    plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
-    plt.colorbar(format='%+2.0f dB')
-    plt.title('频谱图（可画框标注）')
-    plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
+    ax.set_xlim(times[0], times[-1])
+    ax.set_ylim(frequencies[0], frequencies[-1])
+    ax.set_title('频谱图（可画框标注）')
+    fig.colorbar(img, ax=ax, format='%+2.0f dB')
+    fig.tight_layout()
 
-    # 强制图形渲染
-    fig.canvas.draw()
-    
-    # 获取渲染后的图像尺寸
-    renderer = fig.canvas.get_renderer()
-    bbox = img.get_window_extent(renderer)
-    img_width, img_height = int(bbox.width), int(bbox.height)
-    
-    # 保存图像到内存
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+    # 👉 改为白底不透明背景（加 facecolor='white'）
+    fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.1, facecolor='white')
     buf.seek(0)
-    img = Image.open(buf)
-    
-    plt.close(fig)  # 关闭图形，释放资源
-    return img, img_width, img_height
+    plt.close(fig)
+
+    return Image.open(buf)
+
 
 
 @st.cache_data(show_spinner=False)
@@ -87,33 +83,29 @@ def get_full_pinyin(text):
 
 
 # ======== Session 状态初始化 =========
-def init_session_state():
-    if "dynamic_species_list" not in st.session_state:
-        st.session_state["dynamic_species_list"] = []
-    if "current_selected_labels" not in st.session_state:
-        st.session_state.current_selected_labels = set()
-    if "audio_state" not in st.session_state:
-        st.session_state.audio_state = {
-            "processed_files": set(),
-            "current_index": 0,
-            "segment_info": {},
-            "last_audio_file": None,
-            "last_seg_idx": -1,
-        }
-    if "filtered_labels_cache" not in st.session_state:
-        st.session_state.filtered_labels_cache = {}
-    if "canvas_boxes" not in st.session_state:  # 存储带标签的画框：{像素坐标, 时间频率, 标签}
-        st.session_state.canvas_boxes = []
-    if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐标转换）
-        st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
-    if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
-        st.session_state.spec_image = None
-    if "spec_width" not in st.session_state:  # 缓存频谱图宽度
-        st.session_state.spec_width = 0
-    if "spec_height" not in st.session_state:  # 缓存频谱图高度
-        st.session_state.spec_height = 0
-    if "is_generating_spec" not in st.session_state:  # 标记是否正在生成频谱图
-        st.session_state.is_generating_spec = False
+if "dynamic_species_list" not in st.session_state:
+    st.session_state["dynamic_species_list"] = []
+if "current_selected_labels" not in st.session_state:
+    st.session_state.current_selected_labels = set()
+if "audio_state" not in st.session_state:
+    st.session_state.audio_state = {
+        "processed_files": set(),
+        "current_index": 0,
+        "segment_info": {},
+        "last_audio_file": None,
+        "last_seg_idx": -1,
+    }
+if "filtered_labels_cache" not in st.session_state:
+    st.session_state.filtered_labels_cache = {}
+if "canvas_boxes" not in st.session_state:  # 存储带标签的画框：{像素坐标, 时间频率, 标签}
+    st.session_state.canvas_boxes = []
+if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐标转换）
+    st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
+if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
+    st.session_state.spec_image = None
+
+st.set_page_config(layout="wide")
+st.title("🐸 青蛙音频标注工具")
 
 
 # ======== 标签管理组件 =========
@@ -150,54 +142,17 @@ def spectral_annotation_component(y, sr, current_segment_key):
     # 生成频谱图数据（时间、频率范围）
     D, times, frequencies = generate_spectrogram_data(y, sr)
 
-    # 确保不会重复生成频谱图
-    if st.session_state.spec_image is None and not st.session_state.is_generating_spec:
-        st.session_state.is_generating_spec = True
-        try:
-            # 尝试生成频谱图
-            spec_image, img_width, img_height = generate_spectrogram_image(D, times, frequencies)
-            
-            # 验证图像尺寸是否有效
-            if img_width <= 0 or img_height <= 0:
-                st.error("生成的频谱图尺寸无效，尝试使用备用方法...")
-                # 备用方法：使用matplotlib默认的图像尺寸
-                img_width = 1200  # 12英寸 * 100 dpi
-                img_height = 600  # 6英寸 * 100 dpi
-                st.warning(f"使用默认尺寸: {img_width}x{img_height} 像素")
-            
-            st.session_state.spec_image = spec_image
-            st.session_state.spec_width = img_width
-            st.session_state.spec_height = img_height
-        except Exception as e:
-            st.error(f"生成频谱图时出错: {str(e)}")
-            st.warning("尝试使用默认尺寸创建画布")
-            # 设置默认尺寸
-            st.session_state.spec_width = 1200
-            st.session_state.spec_height = 600
-        finally:
-            st.session_state.is_generating_spec = False
-
-    # 等待频谱图生成完成
+    # 缓存频谱图，避免重复生成
     if st.session_state.spec_image is None:
-        st.info("正在生成频谱图，请稍候...")
-        return False, False
-
-    # 获取图像尺寸
-    img_width = st.session_state.spec_width
-    img_height = st.session_state.spec_height
-    
-    # 确保图像尺寸有效
-    if img_width <= 0 or img_height <= 0:
-        st.error("频谱图尺寸无效，使用默认值")
-        img_width = 1200
-        img_height = 600
-        st.session_state.spec_width = img_width
-        st.session_state.spec_height = img_height
+        spec_image = generate_spectrogram_image(D, times, frequencies)
+        st.session_state.spec_image = spec_image
+    else:
+        spec_image = st.session_state.spec_image
 
     st.session_state.spec_params = {
         "times": times,  # 0-5秒的时间轴
         "frequencies": frequencies,  # 频率轴（0到sr/2）
-        "img_size": (img_width, img_height)  # 频谱图尺寸（像素）
+        "img_size": (spec_image.width, spec_image.height)  # 频谱图尺寸（像素）
     }
 
     # 主区域布局：左侧为操作区（固定结构），右侧为标签区（可滚动）
@@ -205,7 +160,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
 
     with col_main:
         st.subheader("🎧 频谱图画框标注（点击画布绘制矩形）")
-        
+
         # 1. 音频播放移到频谱图上方
         st.markdown("#### 音频播放")
         audio_bytes = BytesIO()
@@ -214,19 +169,17 @@ def spectral_annotation_component(y, sr, current_segment_key):
 
         # 2. 频谱图画布区域
         st.markdown("#### 频谱图（可绘制矩形框）")
-        
-        # 使用缓存的图像尺寸设置canvas
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
-            background_image=st.session_state.spec_image,
-            height=img_height,  # 使用实际图像高度
-            width=img_width,    # 使用实际图像宽度
-            drawing_mode="rect",      # 仅允许画矩形
+            background_image=spec_image,
+            height=spec_image.height,  # 画布高度=频谱图高度
+            width=spec_image.width,  # 画布宽度=频谱图宽度
+            drawing_mode="rect",  # 仅允许画矩形
             key=f"canvas_{current_segment_key}",
-            update_streamlit=True,    # 启用自动更新
-            display_toolbar=True      # 显示工具栏
+            update_streamlit=True,  # 启用自动更新
+            display_toolbar=True  # 显示工具栏
         )
 
         # 处理画布上的画框
@@ -258,8 +211,6 @@ def spectral_annotation_component(y, sr, current_segment_key):
         # 处理刷新逻辑
         if refresh_clicked:
             st.session_state.spec_image = None
-            st.session_state.spec_width = 0
-            st.session_state.spec_height = 0
             st.rerun()
 
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
@@ -401,8 +352,6 @@ def process_audio():
             st.session_state.current_selected_labels = set()
             st.session_state.canvas_boxes = []
             st.session_state.spec_image = None  # 重置频谱图缓存
-            st.session_state.spec_width = 0     # 重置图像宽度缓存
-            st.session_state.spec_height = 0    # 重置图像高度缓存
             audio_state["last_audio_file"] = audio_file.name
             audio_state["last_seg_idx"] = seg_idx
 
@@ -476,7 +425,7 @@ def process_audio():
                 with col1:
                     st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_container_width=True)
                 with col2:
-                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr))[0], caption="频谱图",
+                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
                              use_container_width=True)
 
             with col_labels:
@@ -573,6 +522,5 @@ def annotation_labels_component(current_segment_key):
 
 
 if __name__ == "__main__":
-    init_session_state()
     label_management_component()
     process_audio()
