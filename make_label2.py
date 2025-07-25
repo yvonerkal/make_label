@@ -1,6 +1,3 @@
-# 保存、下载数据的方式
-# 频谱图显示问题
-# 保存分割数据时，开始时间点往前，结束时间点往后取整
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import librosa
@@ -515,6 +512,18 @@ def annotation_labels_component(current_segment_key):
 
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
+        
+        # 显示已选标签并提供删除功能
+        if st.session_state.current_selected_labels:
+            for label in list(st.session_state.current_selected_labels):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(label)
+                with col2:
+                    if st.button("删除", key=f"del_{label}_{current_segment_key}"):
+                        st.session_state.current_selected_labels.discard(label)
+                        st.rerun()  # 重新运行以更新UI
+
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
 
