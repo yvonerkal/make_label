@@ -4,7 +4,7 @@ import librosa
 import librosa.display
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm  # 新增：字体管理
+import matplotlib.font_manager as fm
 import soundfile as sf
 import pandas as pd
 import os
@@ -15,69 +15,107 @@ from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
 import sys
+from datetime import datetime
 
-
-# ======== 字体设置（核心修改） =========
+# ======== 字体设置 =========
 def setup_matplotlib_font():
     """配置Matplotlib使用系统可用字体，避免字体查找警告"""
-    # 尝试获取系统中已安装的无衬线字体（兼容性好）
     system_fonts = fm.findSystemFonts()
     sans_serif_fonts = [f for f in system_fonts if 'sans' in f.lower() or 'arial' in f.lower()]
     
     if sans_serif_fonts:
-        # 优先使用找到的无衬线字体
         plt.rcParams["font.family"] = ["sans-serif"]
         plt.rcParams["font.sans-serif"] = [fm.FontProperties(fname=sans_serif_fonts[0]).get_name()]
     else:
-        #  fallback：使用Matplotlib默认字体
         plt.rcParams["font.family"] = ["DejaVu Sans", "Arial", "Helvetica"]
     
     plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
 
-
-# 初始化时就设置字体（全局生效）
+# 初始化时就设置字体
 setup_matplotlib_font()
 
+# ======== 会话管理 =========
+def init_session():
+    """初始化并确保会话唯一性"""
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+    
+    # 清除过期的会话数据
+    if "last_activity" in st.session_state:
+        idle_time = (datetime.now() - st.session_state.last_activity).total_seconds()
+        if idle_time > 3600:  # 1小时无活动则重置会话
+            reset_session()
+    
+    st.session_state.last_activity = datetime.now()
+
+def reset_session():
+    """重置会话状态"""
+    for key in list(st.session_state.keys()):
+        if key != "session_id":
+            del st.session_state[key]
+    st.info("会话已重置以解决可能的冲突")
 
 # ======== 工具函数 =========
 @st.cache_data(show_spinner=False)
 def load_audio(file):
-    return librosa.load(file, sr=None)
+    """加载音频文件，增加错误处理"""
+    try:
+        return librosa.load(file, sr=None)
+    except Exception as e:
+        st.error(f"加载音频失败: {str(e)}")
+        return None, None
 
+@st.cache_data(show_spinner=False)
+def validate_audio_file(file):
+    """验证音频文件是否存在且有效"""
+    try:
+        # 尝试获取音频时长
+        duration = librosa.get_duration(filename=file)
+        return True, duration
+    except Exception as e:
+        st.error(f"音频文件验证失败: {str(e)}")
+        return False, 0
 
 def generate_spectrogram_data(y, sr):
     """生成频谱图数据及坐标轴范围（用于坐标转换）"""
+    if y is None or sr is None:
+        return None, None, None
+        
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
-    times = librosa.times_like(D, sr=sr)  # 时间轴：0-5秒（5秒片段）
-    frequencies = librosa.fft_frequencies(sr=sr)  # 频率轴：0到sr/2（奈奎斯特频率）
+    times = librosa.times_like(D, sr=sr)
+    frequencies = librosa.fft_frequencies(sr=sr)
     return D, times, frequencies
-
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-    plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
+    if D is None or times is None or frequencies is None:
+        return None
+        
+    plt.figure(figsize=(12, 6), dpi=100)
     img = librosa.display.specshow(
         D,
-        sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
+        sr=frequencies[-1] * 2,
         x_axis='time',
         y_axis='log',
     )
-    plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
-    plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
+    plt.xlim(times[0], times[-1])
+    plt.ylim(frequencies[0], frequencies[-1])
     plt.colorbar(format='%+2.0f dB')
     plt.title('Spectrogram')
-    plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
+    plt.tight_layout(pad=0)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
+    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     buf.seek(0)
     img = Image.open(buf)
     plt.close()
     return img
 
-
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
+    if y is None or sr is None:
+        return None
+        
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('Waveform')
@@ -88,16 +126,15 @@ def generate_waveform_image(y, sr):
     plt.close()
     return Image.open(buf)
 
-
 def get_pinyin_abbr(text):
     return ''.join([p[0] for p in lazy_pinyin(text) if p])
-
 
 def get_full_pinyin(text):
     return ''.join(lazy_pinyin(text))
 
-
 # ======== Session 状态初始化 =========
+init_session()  # 初始化会话
+
 if "dynamic_species_list" not in st.session_state:
     st.session_state["dynamic_species_list"] = []
 if "current_selected_labels" not in st.session_state:
@@ -112,16 +149,15 @@ if "audio_state" not in st.session_state:
     }
 if "filtered_labels_cache" not in st.session_state:
     st.session_state.filtered_labels_cache = {}
-if "canvas_boxes" not in st.session_state:  # 存储带标签的画框：{像素坐标, 时间频率, 标签}
+if "canvas_boxes" not in st.session_state:
     st.session_state.canvas_boxes = []
-if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐标转换）
+if "spec_params" not in st.session_state:
     st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
-if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
+if "spec_image" not in st.session_state:
     st.session_state.spec_image = None
 
 st.set_page_config(layout="wide")
 st.title("青蛙音频标注工具")
-
 
 # ======== 标签管理组件 =========
 def label_management_component():
@@ -151,7 +187,6 @@ def label_management_component():
         )
     return st.session_state["dynamic_species_list"]
 
-
 # ======== 频谱图画框+标签关联组件 =========
 def spectral_annotation_component(y, sr, current_segment_key):
     # 生成频谱图数据（时间、频率范围）
@@ -164,10 +199,14 @@ def spectral_annotation_component(y, sr, current_segment_key):
     else:
         spec_image = st.session_state.spec_image
 
+    if spec_image is None:
+        st.error("无法生成频谱图，请检查音频数据")
+        return False, False
+
     st.session_state.spec_params = {
-        "times": times,  # 0-5秒的时间轴
-        "frequencies": frequencies,  # 频率轴（0到sr/2）
-        "img_size": (spec_image.width, spec_image.height)  # 频谱图尺寸（像素）
+        "times": times,
+        "frequencies": frequencies,
+        "img_size": (spec_image.width, spec_image.height)
     }
 
     # 主区域布局：左侧为操作区（固定结构），右侧为标签区（可滚动）
@@ -178,36 +217,39 @@ def spectral_annotation_component(y, sr, current_segment_key):
 
         # 1. 音频播放移到频谱图上方
         st.markdown("#### 音频播放")
-        audio_bytes = BytesIO()
-        sf.write(audio_bytes, y, sr, format='WAV')
-        st.audio(audio_bytes, format="audio/wav", start_time=0)
+        if y is not None and sr is not None:
+            audio_bytes = BytesIO()
+            sf.write(audio_bytes, y, sr, format='WAV')
+            st.audio(audio_bytes, format="audio/wav", start_time=0)
+        else:
+            st.warning("无法播放音频，请检查音频数据")
 
         # 2. 频谱图画布区域
         st.markdown("#### 频谱图（可绘制矩形框）")
         canvas_result = st_canvas(
-            fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
+            fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
-            stroke_color="#FF0000",  # 红色边框
+            stroke_color="#FF0000",
             background_image=spec_image,
-            height=spec_image.height,  # 画布高度=频谱图高度
-            width=spec_image.width,  # 画布宽度=频谱图宽度
-            drawing_mode="rect",  # 仅允许画矩形
+            height=spec_image.height,
+            width=spec_image.width,
+            drawing_mode="rect",
             key=f"canvas_{current_segment_key}",
-            update_streamlit=True,  # 启用自动更新
-            display_toolbar=True  # 显示工具栏
+            update_streamlit=True,
+            display_toolbar=True
         )
 
         # 处理画布上的画框
         if canvas_result.json_data is not None:
             st.session_state.canvas_boxes = [
                 {
-                    "pixel": {  # 像素坐标（画布上的位置）
+                    "pixel": {
                         "left": obj["left"],
                         "top": obj["top"],
                         "width": obj["width"],
                         "height": obj["height"]
                     },
-                    "label": None  # 初始无标签
+                    "label": None
                 }
                 for obj in canvas_result.json_data["objects"]
                 if obj["type"] == "rect"
@@ -215,12 +257,11 @@ def spectral_annotation_component(y, sr, current_segment_key):
 
         # 3. 刷新按钮和操作按钮组（固定在频谱图下方）
         st.markdown("#### 操作")
-        button_row = st.columns([1, 1, 2])  # 调整按钮宽度比例
+        button_row = st.columns([1, 1, 2])
         with button_row[0]:
             save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
         with button_row[1]:
             skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
-
 
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
@@ -270,7 +311,6 @@ def spectral_annotation_component(y, sr, current_segment_key):
 
     return save_clicked, skip_clicked
 
-
 # ======== 像素坐标→时间/频率转换函数 =========
 def pixel_to_time_freq(pixel_coords):
     """将画布上的像素坐标转换为实际的时间（秒）和频率（Hz）"""
@@ -278,25 +318,27 @@ def pixel_to_time_freq(pixel_coords):
     frequencies = st.session_state.spec_params["frequencies"]
     img_width, img_height = st.session_state.spec_params["img_size"]
 
+    if times is None or frequencies is None:
+        return {"start": 0, "end": 0, "min": 0, "max": 0}
+
     # 时间范围（x轴）：画布左→右 = 0→5秒
-    total_time = times[-1] - times[0]  # 总时长（5秒）
-    time_per_pixel = total_time / img_width  # 每个像素对应的时间
+    total_time = times[-1] - times[0]
+    time_per_pixel = total_time / img_width
     start_time = times[0] + pixel_coords["left"] * time_per_pixel
     end_time = start_time + pixel_coords["width"] * time_per_pixel
 
-    # 频率范围（y轴）：画布上→下 = 高频→低频（因为频谱图y轴是倒的）
-    total_freq = frequencies[-1] - frequencies[0]  # 总频率范围（0到sr/2）
-    freq_per_pixel = total_freq / img_height  # 每个像素对应的频率
+    # 频率范围（y轴）：画布上→下 = 高频→低频
+    total_freq = frequencies[-1] - frequencies[0]
+    freq_per_pixel = total_freq / img_height
     max_freq = frequencies[-1] - pixel_coords["top"] * freq_per_pixel
     min_freq = max_freq - pixel_coords["height"] * freq_per_pixel
 
     return {
-        "start": round(max(0, start_time), 3),  # 确保不小于0
-        "end": round(min(5, end_time), 3),  # 确保不超过5秒
+        "start": round(max(0, start_time), 3),
+        "end": round(min(5, end_time), 3),
         "min": round(max(0, min_freq), 1),
         "max": round(min(frequencies[-1], max_freq), 1)
     }
-
 
 # ======== 音频处理主逻辑 =========
 def process_audio():
@@ -305,7 +347,7 @@ def process_audio():
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "annotations.csv")
 
-    # 初始化CSV（包含画框的时间、频率、标签）
+    # 初始化CSV
     try:
         if not os.path.exists(csv_path):
             pd.DataFrame(columns=[
@@ -332,7 +374,9 @@ def process_audio():
             with zipfile.ZipFile(zip_buf := BytesIO(), "w") as zf:
                 for f in os.listdir(output_dir):
                     if f.endswith(".wav"):
-                        zf.write(os.path.join(output_dir, f), f)
+                        file_path = os.path.join(output_dir, f)
+                        if os.path.exists(file_path):  # 确保文件存在
+                            zf.write(file_path, f)
             zip_buf.seek(0)
             st.download_button("🎵 下载音频片段", zip_buf, "annotated_segments.zip", "application/zip")
 
@@ -345,7 +389,24 @@ def process_audio():
 
     if unprocessed:
         audio_file = unprocessed[0]
-        y, sr = load_audio(audio_file)
+        
+        # 保存上传的音频文件到临时位置
+        temp_audio_path = f"temp_{uuid.uuid4().hex}.wav"
+        with open(temp_audio_path, "wb") as f:
+            f.write(audio_file.getbuffer())
+        
+        # 验证音频文件
+        valid, duration = validate_audio_file(temp_audio_path)
+        if not valid:
+            st.error(f"音频文件 {audio_file.name} 无效，请检查文件格式")
+            os.remove(temp_audio_path)
+            return
+
+        y, sr = load_audio(temp_audio_path)
+        if y is None or sr is None:
+            os.remove(temp_audio_path)
+            return
+
         total_duration = librosa.get_duration(y=y, sr=sr)
         total_segments = int(np.ceil(total_duration / 5.0))
 
@@ -360,7 +421,7 @@ def process_audio():
                 audio_state["last_seg_idx"] != seg_idx):
             st.session_state.current_selected_labels = set()
             st.session_state.canvas_boxes = []
-            st.session_state.spec_image = None  # 重置频谱图缓存
+            st.session_state.spec_image = None
             audio_state["last_audio_file"] = audio_file.name
             audio_state["last_seg_idx"] = seg_idx
 
@@ -409,9 +470,12 @@ def process_audio():
                 audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                 if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                     audio_state["processed_files"].add(audio_file.name)
-                st.session_state.spec_image = None  # 重置频谱图缓存
+                st.session_state.spec_image = None
                 st.success(f"成功保存 {len(entries)} 个框标注！")
                 st.balloons()
+                # 删除临时文件
+                if os.path.exists(temp_audio_path):
+                    os.remove(temp_audio_path)
                 st.rerun()
 
             # 跳过当前段
@@ -419,7 +483,10 @@ def process_audio():
                 audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                 if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                     audio_state["processed_files"].add(audio_file.name)
-                st.session_state.spec_image = None  # 重置频谱图缓存
+                st.session_state.spec_image = None
+                # 删除临时文件
+                if os.path.exists(temp_audio_path):
+                    os.remove(temp_audio_path)
                 st.rerun()
 
         else:
@@ -427,35 +494,51 @@ def process_audio():
             col_main, col_labels = st.columns([3, 1])
             with col_main:
                 st.subheader("🎧 播放当前片段")
-                audio_bytes = BytesIO()
-                sf.write(audio_bytes, segment_y, sr, format='WAV')
-                st.audio(audio_bytes, format="audio/wav")
+                if segment_y is not None and sr is not None:
+                    audio_bytes = BytesIO()
+                    sf.write(audio_bytes, segment_y, sr, format='WAV')
+                    st.audio(audio_bytes, format="audio/wav")
+                else:
+                    st.warning("无法播放音频片段，请检查数据")
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.image(generate_waveform_image(segment_y, sr), caption="Waveform", use_column_width=True)
+                    waveform_img = generate_waveform_image(segment_y, sr)
+                    if waveform_img is not None:
+                        st.image(waveform_img, caption="Waveform", use_column_width=True)
+                    else:
+                        st.warning("无法生成波形图，请检查数据")
                 with col2:
-                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)),
-                             caption="Spectrogram",
-                             use_column_width=True)
+                    spec_data = generate_spectrogram_data(segment_y, sr)
+                    spec_img = generate_spectrogram_image(*spec_data)
+                    if spec_img is not None:
+                        st.image(spec_img, caption="Spectrogram", use_column_width=True)
+                    else:
+                        st.warning("无法生成频谱图，请检查数据")
 
             with col_labels:
                 col_save, col_skip = annotation_labels_component(current_segment_key)
                 if col_save and st.button("保存分段标注", key=f"save_seg_{current_segment_key}"):
-                    save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir)
+                    save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir, temp_audio_path)
                 if col_skip and st.button("跳过本段", key=f"skip_seg_{current_segment_key}"):
                     audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                     if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                         audio_state["processed_files"].add(audio_file.name)
+                    # 删除临时文件
+                    if os.path.exists(temp_audio_path):
+                        os.remove(temp_audio_path)
                     st.rerun()
 
     else:
         st.success("🎉 所有音频标注完成！")
 
     st.session_state.audio_state = audio_state
-
+    # 确保删除临时文件
+    if 'temp_audio_path' in locals() and os.path.exists(temp_audio_path):
+        os.remove(temp_audio_path)
 
 # ======== 分段标注保存函数 =========
-def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir):
+def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir, temp_audio_path=None):
     csv_path = os.path.join(output_dir, "annotations.csv")
     if not st.session_state.current_selected_labels:
         st.warning("请至少选择一个标签")
@@ -486,8 +569,12 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
         audio_state["processed_files"].add(audio_file.name)
     st.success(f"成功保存分段标注！")
     st.balloons()
+    
+    # 删除临时文件
+    if temp_audio_path and os.path.exists(temp_audio_path):
+        os.remove(temp_audio_path)
+        
     st.rerun()
-
 
 # ======== 原有分段标注标签组件 =========
 def annotation_labels_component(current_segment_key):
@@ -529,7 +616,6 @@ def annotation_labels_component(current_segment_key):
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
-
 
 if __name__ == "__main__":
     label_management_component()
