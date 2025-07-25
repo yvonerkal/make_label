@@ -39,26 +39,27 @@ def generate_spectrogram_data(y, sr):
 def generate_spectrogram_image(y, sr):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
     D, times, frequencies = generate_spectrogram_data(y, sr)
-    
-    plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
-    img = librosa.display.specshow(
+
+    plt.figure(figsize=(12, 6), dpi=100)
+    img_disp = librosa.display.specshow(
         D,
-        sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
+        sr=frequencies[-1] * 2,
         x_axis='time',
         y_axis='log',
     )
-    plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
-    plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
-    plt.colorbar(format='%+2.0f dB')
+    plt.xlim(times[0], times[-1])
+    plt.ylim(frequencies[0], frequencies[-1])
+    plt.colorbar(img_disp, format='%+2.0f dB')  # ✅ 修复关键
     plt.title('Spectrogram')
-    plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
+    plt.tight_layout(pad=0)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
+    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     buf.seek(0)
     img = Image.open(buf)
-    plt.close()  # 确保图形被正确关闭
+    plt.close()
     return img, D, times, frequencies
+
 
 
 @st.cache_data(show_spinner=False)
