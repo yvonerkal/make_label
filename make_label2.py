@@ -15,6 +15,22 @@ import uuid
 from pypinyin import lazy_pinyin
 import sys
 
+# 设置页面配置 - 必须在任何Streamlit命令之前调用
+st.set_page_config(layout="wide")
+
+# 自定义CSS：调整画布容器样式，避免溢出
+st.markdown("""
+<style>
+    .canvas-container {
+        overflow-x: auto;  # 允许水平滚动
+        padding: 10px;
+    }
+    .stCanvas {
+        border: 2px solid #ccc !important;  # 显式边框，便于观察
+    }
+</style>
+""", unsafe_allow_html=True)
+
 sys.setrecursionlimit(10000)
 
 # ======== 工具函数 =========
@@ -105,20 +121,6 @@ if "canvas_boxes" not in st.session_state:
 if "spec_params" not in st.session_state:
     st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
 
-# 自定义CSS：调整画布容器样式，避免溢出
-st.markdown("""
-<style>
-    .canvas-container {
-        overflow-x: auto;  # 允许水平滚动
-        padding: 10px;
-    }
-    .stCanvas {
-        border: 2px solid #ccc !important;  # 显式边框，便于观察
-    }
-</style>
-""", unsafe_allow_html=True)
-
-st.set_page_config(layout="wide")
 st.title("🐸 青蛙音频标注工具")
 
 
