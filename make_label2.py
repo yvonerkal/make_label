@@ -1,12 +1,10 @@
-# 保存、下载数据的方式
-# 频谱图显示问题
-# 保存分割数据时，开始时间点往前，结束时间点往后取整
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import librosa
 import librosa.display
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm  # 新增：字体管理
 import soundfile as sf
 import pandas as pd
 import os
@@ -19,9 +17,29 @@ from pypinyin import lazy_pinyin
 import sys
 
 
+# ======== 字体设置（核心修改） =========
+def setup_matplotlib_font():
+    """配置Matplotlib使用系统可用字体，避免字体查找警告"""
+    # 尝试获取系统中已安装的无衬线字体（兼容性好）
+    system_fonts = fm.findSystemFonts()
+    sans_serif_fonts = [f for f in system_fonts if 'sans' in f.lower() or 'arial' in f.lower()]
+    
+    if sans_serif_fonts:
+        # 优先使用找到的无衬线字体
+        plt.rcParams["font.family"] = ["sans-serif"]
+        plt.rcParams["font.sans-serif"] = [fm.FontProperties(fname=sans_serif_fonts[0]).get_name()]
+    else:
+        #  fallback：使用Matplotlib默认字体
+        plt.rcParams["font.family"] = ["DejaVu Sans", "Arial", "Helvetica"]
+    
+    plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
+
+
+# 初始化时就设置字体（全局生效）
+setup_matplotlib_font()
+
+
 # ======== 工具函数 =========
-
-
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
@@ -29,7 +47,6 @@ def load_audio(file):
 
 def generate_spectrogram_data(y, sr):
     """生成频谱图数据及坐标轴范围（用于坐标转换）"""
-
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     times = librosa.times_like(D, sr=sr)  # 时间轴：0-5秒（5秒片段）
     frequencies = librosa.fft_frequencies(sr=sr)  # 频率轴：0到sr/2（奈奎斯特频率）
@@ -38,7 +55,6 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
@@ -62,7 +78,6 @@ def generate_spectrogram_image(D, times, frequencies):
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('Waveform')
