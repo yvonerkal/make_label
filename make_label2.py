@@ -164,6 +164,8 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.audio(audio_bytes, format="audio/wav", start_time=0)
 
         st.markdown("#### 在频谱图上画框")
+        # 在spectral_annotation_component()中添加测试显示
+        st.image(spec_image, caption="测试频谱图显示")
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.4)",
             stroke_width=2,
