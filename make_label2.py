@@ -50,7 +50,7 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
     plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
     plt.colorbar(format='%+2.0f dB')
-    plt.title('Spectrogram（可画框标注）')
+    plt.title('Spectrogram')
     plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
 
     buf = io.BytesIO()
