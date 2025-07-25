@@ -167,7 +167,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.markdown("#### 频谱图（可绘制矩形框）")
         canvas_result = st_canvas(
             # 在spectral_annotation_component()中添加测试显示
-            st.image(spec_image, caption="测试频谱图显示")
+            st.image(spec_image, caption="测试频谱图显示"),
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
