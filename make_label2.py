@@ -22,6 +22,11 @@ sys.setrecursionlimit(10000)  # 增加递归深度限制
 
 
 # ======== 工具函数 =========
+def set_chinese_font():
+    """设置支持中文的字体，确保标题和标签正常显示"""
+    plt.rcParams["font.family"] = ["SimHei", "WenQuanYi Micro Hei", "Heiti TC", "Arial Unicode MS"]
+    plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
+    
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
@@ -29,6 +34,7 @@ def load_audio(file):
 
 def generate_spectrogram_data(y, sr):
     """生成频谱图数据及坐标轴范围（用于坐标转换）"""
+    set_chinese_font()  # 添加中文字体设置
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     times = librosa.times_like(D, sr=sr)  # 时间轴：0-5秒（5秒片段）
     frequencies = librosa.fft_frequencies(sr=sr)  # 频率轴：0到sr/2（奈奎斯特频率）
@@ -37,6 +43,7 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
+    set_chinese_font()  # 添加中文字体设置
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
@@ -60,6 +67,7 @@ def generate_spectrogram_image(D, times, frequencies):
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
+    set_chinese_font()  # 添加中文字体设置
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('波形图')
