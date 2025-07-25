@@ -17,6 +17,7 @@ from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
 import sys
+import base64
 
 sys.setrecursionlimit(10000)  # 增加递归深度限制
 
