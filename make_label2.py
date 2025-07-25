@@ -18,14 +18,10 @@ import uuid
 from pypinyin import lazy_pinyin
 import sys
 
-sys.setrecursionlimit(10000)  # 增加递归深度限制
 
 
 # ======== 工具函数 =========
-def set_chinese_font():
-    """设置支持中文的字体，确保标题和标签正常显示"""
-    plt.rcParams["font.family"] = ["SimHei", "WenQuanYi Micro Hei", "Heiti TC", "Arial Unicode MS"]
-    plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
+
     
 @st.cache_data(show_spinner=False)
 def load_audio(file):
@@ -34,7 +30,7 @@ def load_audio(file):
 
 def generate_spectrogram_data(y, sr):
     """生成频谱图数据及坐标轴范围（用于坐标转换）"""
-    set_chinese_font()  # 添加中文字体设置
+   
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     times = librosa.times_like(D, sr=sr)  # 时间轴：0-5秒（5秒片段）
     frequencies = librosa.fft_frequencies(sr=sr)  # 频率轴：0到sr/2（奈奎斯特频率）
@@ -43,7 +39,7 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-    set_chinese_font()  # 添加中文字体设置
+    
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
@@ -54,7 +50,7 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
     plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
     plt.colorbar(format='%+2.0f dB')
-    plt.title('频谱图（可画框标注）')
+    plt.title('Spectrogram（可画框标注）')
     plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
 
     buf = io.BytesIO()
@@ -70,7 +66,7 @@ def generate_waveform_image(y, sr):
     set_chinese_font()  # 添加中文字体设置
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
-    plt.title('波形图')
+    plt.title('Waveform')
     plt.tight_layout()
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight')
@@ -110,7 +106,7 @@ if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
     st.session_state.spec_image = None
 
 st.set_page_config(layout="wide")
-st.title("🐸 青蛙音频标注工具")
+st.title("青蛙音频标注工具")
 
 
 # ======== 标签管理组件 =========
@@ -428,9 +424,9 @@ def process_audio():
                 st.audio(audio_bytes, format="audio/wav")
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_column_width=True)
+                    st.image(generate_waveform_image(segment_y, sr), caption="Waveform", use_column_width=True)
                 with col2:
-                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
+                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="Spectrogram",
                              use_column_width=True)
 
             with col_labels:
