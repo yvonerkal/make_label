@@ -299,7 +299,7 @@ def process_audio():
         st.markdown("### 📥 下载结果")
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
-                st.download_button("📄 下载标注结果", f, "annotations.csv", "text/csv"; charset=utf-8")
+                st.download_button("📄 下载标注结果", f, "annotations.csv", "text/csv", charset=utf-8")
         if os.path.exists(output_dir):
             with zipfile.ZipFile(zip_buf := BytesIO(), "w") as zf:
                 for f in os.listdir(output_dir):
