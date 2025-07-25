@@ -56,6 +56,9 @@ def generate_spectrogram_image(D, times, frequencies):
     fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.1, facecolor='white')
     buf.seek(0)
     plt.close(fig)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
 
     return Image.open(buf)
 
@@ -173,9 +176,10 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.image(spec_image, caption="频谱图 DEBUG 显示", use_column_width=True)
         st.markdown("#### 频谱图（可绘制矩形框）")
         canvas_result = st_canvas(
-            fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
+            fill_color="rgba(255, 0, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
+            background_color="#eee",
             background_image=spec_image,
             height=spec_image.height,  # 画布高度=频谱图高度
             width=spec_image.width,  # 画布宽度=频谱图宽度
