@@ -205,10 +205,10 @@ def spectral_annotation_component(y, sr, current_segment_key):
         with button_row[1]:
             skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
 
-        # 处理刷新逻辑
-        if refresh_clicked:
-            st.session_state.spec_image = None
-            st.rerun()
+        # # 处理刷新逻辑
+        # if refresh_clicked:
+        #     st.session_state.spec_image = None
+        #     st.rerun()
 
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
