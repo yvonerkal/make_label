@@ -36,9 +36,10 @@ def generate_spectrogram_data(y, sr):
     return D, times, frequencies
 
 
-def generate_spectrogram_image(D, times, frequencies):
+def generate_spectrogram_image(y, sr):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-
+    D, times, frequencies = generate_spectrogram_data(y, sr)
+    
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
@@ -56,13 +57,12 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
     buf.seek(0)
     img = Image.open(buf)
-    plt.close()
-    return img
+    plt.close()  # 确保图形被正确关闭
+    return img, D, times, frequencies
 
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('Waveform')
@@ -70,7 +70,7 @@ def generate_waveform_image(y, sr):
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight')
     buf.seek(0)
-    plt.close()
+    plt.close()  # 确保图形被正确关闭
     return Image.open(buf)
 
 
@@ -109,6 +109,9 @@ if "spec_params" not in st.session_state:  # 存储频谱图参数（用于坐�
     st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
 if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
     st.session_state.spec_image = None
+if "spec_data" not in st.session_state:  # 缓存频谱图数据
+    st.session_state.spec_data = None
+
 
 st.set_page_config(layout="wide")
 st.title("青蛙音频标注工具")
@@ -145,15 +148,14 @@ def label_management_component():
 
 # ======== 频谱图画框+标签关联组件 =========
 def spectral_annotation_component(y, sr, current_segment_key):
-    # 生成频谱图数据（时间、频率范围）
-    D, times, frequencies = generate_spectrogram_data(y, sr)
-
-    # 缓存频谱图，避免重复生成
-    if st.session_state.spec_image is None:
-        spec_image = generate_spectrogram_image(D, times, frequencies)
+    # 生成或获取缓存的频谱图
+    if st.session_state.spec_image is None or st.session_state.spec_data is None:
+        spec_image, D, times, frequencies = generate_spectrogram_image(y, sr)
         st.session_state.spec_image = spec_image
+        st.session_state.spec_data = (D, times, frequencies)
     else:
         spec_image = st.session_state.spec_image
+        D, times, frequencies = st.session_state.spec_data
 
     st.session_state.spec_params = {
         "times": times,  # 0-5秒的时间轴
@@ -211,7 +213,6 @@ def spectral_annotation_component(y, sr, current_segment_key):
             save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
         with button_row[1]:
             skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
-
 
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
@@ -352,6 +353,7 @@ def process_audio():
             st.session_state.current_selected_labels = set()
             st.session_state.canvas_boxes = []
             st.session_state.spec_image = None  # 重置频谱图缓存
+            st.session_state.spec_data = None  # 重置频谱图数据
             audio_state["last_audio_file"] = audio_file.name
             audio_state["last_seg_idx"] = seg_idx
 
@@ -401,6 +403,7 @@ def process_audio():
                 if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                     audio_state["processed_files"].add(audio_file.name)
                 st.session_state.spec_image = None  # 重置频谱图缓存
+                st.session_state.spec_data = None  # 重置频谱图数据
                 st.success(f"成功保存 {len(entries)} 个框标注！")
                 st.balloons()
                 st.rerun()
@@ -411,6 +414,7 @@ def process_audio():
                 if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                     audio_state["processed_files"].add(audio_file.name)
                 st.session_state.spec_image = None  # 重置频谱图缓存
+                st.session_state.spec_data = None  # 重置频谱图数据
                 st.rerun()
 
         else:
@@ -425,7 +429,7 @@ def process_audio():
                 with col1:
                     st.image(generate_waveform_image(segment_y, sr), caption="Waveform", use_column_width=True)
                 with col2:
-                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)),
+                    st.image(generate_spectrogram_image(segment_y, sr)[0],  # 只需要图像，不需要数据
                              caption="Spectrogram",
                              use_column_width=True)
 
@@ -437,6 +441,8 @@ def process_audio():
                     audio_state["segment_info"][audio_file.name]["current_seg"] += 1
                     if audio_state["segment_info"][audio_file.name]["current_seg"] >= total_segments:
                         audio_state["processed_files"].add(audio_file.name)
+                    st.session_state.spec_image = None  # 重置频谱图缓存
+                    st.session_state.spec_data = None  # 重置频谱图数据
                     st.rerun()
 
     else:
