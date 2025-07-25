@@ -34,8 +34,7 @@ def generate_spectrogram_data(y, sr):
 def generate_spectrogram_image(D, times, frequencies):
     """生成适合画布的频谱图，确保尺寸匹配"""
     plt.switch_backend('Agg')
-    # 生成与画布尺寸一致的图像（900x300像素）
-    fig, ax = plt.subplots(figsize=(9, 3), dpi=100)  # 9*100=900, 3*100=300
+    fig, ax = plt.subplots(figsize=(9, 3), dpi=100)
     img = librosa.display.specshow(
         D,
         sr=frequencies[-1] * 2,
@@ -49,7 +48,6 @@ def generate_spectrogram_image(D, times, frequencies):
     ax.set_title('频谱图（可画框标注）')
     fig.tight_layout(pad=0)
 
-    # 保存为内存图像
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     buf.seek(0)
@@ -101,14 +99,12 @@ if "canvas_boxes" not in st.session_state:
 if "spec_params" not in st.session_state:
     st.session_state.spec_params = {"times": None, "frequencies": None, "img_size": (0, 0)}
 
-# 页面配置放在最前面
 st.set_page_config(layout="wide")
-# 自定义CSS确保画布不覆盖图像
 st.markdown("""
 <style>
     .stCanvas {
         position: relative !important;
-        z-index: 1 !important;  /* 确保画布在图像上方但不遮挡 */
+        z-index: 1 !important;
     }
     .stImage {
         position: relative !important;
@@ -151,9 +147,9 @@ def spectral_annotation_component(y, sr, current_segment_key):
     D, times, frequencies = generate_spectrogram_data(y, sr)
     spec_image = generate_spectrogram_image(D, times, frequencies)
     
-    # 关键：临时显示频谱图，确认图像生成正常（可删除）
+    # 临时显示频谱图，确认图像生成正常
     # st.subheader("生成的频谱图（调试）")
-    # st.image(spec_image, use_container_width=False)
+    # st.image(spec_image, use_column_width=False)
 
     img_width, img_height = spec_image.size
     if img_width <= 0 or img_height <= 0:
@@ -171,23 +167,19 @@ def spectral_annotation_component(y, sr, current_segment_key):
     with col_main:
         st.subheader("🎧 频谱图画框标注（点击画布绘制矩形）")
 
-        # 音频播放
         st.markdown("#### 音频播放")
         audio_bytes = BytesIO()
         sf.write(audio_bytes, y, sr, format='WAV')
         st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-        # 频谱图和画布（核心修复：确保图像与画布尺寸完全一致）
         st.markdown("#### 频谱图（可绘制矩形框）")
-        # 先显示图像，再在相同位置叠加画布
-        st.image(spec_image, use_container_width=False, caption="频谱图底图")
+        # 修复：使用use_column_width参数替代use_container_width
+        st.image(spec_image, use_column_width=False, caption="频谱图底图")
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
             stroke_color="#FF0000",
-            # 不设置background_image，改用底层st.image显示
             background_image=None,
-            # 尺寸与图像完全一致（900x300）
             width=img_width,
             height=img_height,
             drawing_mode="rect",
@@ -196,7 +188,6 @@ def spectral_annotation_component(y, sr, current_segment_key):
             display_toolbar=True
         )
 
-        # 处理画框
         if canvas_result.json_data is not None:
             st.session_state.canvas_boxes = [
                 {
@@ -211,7 +202,6 @@ def spectral_annotation_component(y, sr, current_segment_key):
                 for obj in canvas_result.json_data["objects"] if obj["type"] == "rect"
             ]
 
-        # 操作按钮
         st.markdown("#### 操作")
         button_row = st.columns([1, 1, 2])
         with button_row[0]:
@@ -410,10 +400,10 @@ def process_audio():
                 st.audio(audio_bytes, format="audio/wav")
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_container_width=True)
+                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_column_width=True)
                 with col2:
                     st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
-                             use_container_width=True)
+                             use_column_width=True)
 
             with col_labels:
                 col_save, col_skip = annotation_labels_component(current_segment_key)
