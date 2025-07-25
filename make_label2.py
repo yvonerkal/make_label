@@ -110,8 +110,6 @@ st.markdown("""
 <style>
     .stCanvas {
         position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
         z-index: 100 !important;
         margin: 0 !important;
         padding: 0 !important;
@@ -124,6 +122,9 @@ st.markdown("""
     }
     .canvas-wrapper {
         margin-bottom: 20px !important;
+    }
+    .hidden-canvas {
+        visibility: hidden !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -183,14 +184,16 @@ def spectral_annotation_component(y, sr, current_segment_key):
         # 创建自定义HTML容器，确保图像和画布重叠
         st.markdown(f"""
         <div class="canvas-wrapper">
-            <div class="canvas-container">
-                <img src="data:image/png;base64,{img_str}" style="width:100%;height:100%;" alt="频谱图">
-                <div id="canvas-container-{current_segment_key}"></div>
+            <div class="canvas-container" id="spec-container-{current_segment_key}">
+                <img src="data:image/png;base64,{img_str}" 
+                     style="width:100%;height:100%;" 
+                     alt="频谱图"
+                     id="spec-image-{current_segment_key}">
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # 创建画布，设置为绝对定位并与图像重叠
+        # 创建隐藏的画布，随后通过JS移动到正确位置
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
@@ -203,6 +206,55 @@ def spectral_annotation_component(y, sr, current_segment_key):
             update_streamlit=True,
             display_toolbar=True
         )
+
+        # 使用JavaScript将画布移动到图像上方
+        st.markdown(f"""
+        <script>
+            // 等待DOM加载完成
+            document.addEventListener('DOMContentLoaded', function() {{
+                // 找到容器、图像和画布元素
+                const container = document.getElementById('spec-container-{current_segment_key}');
+                const image = document.getElementById('spec-image-{current_segment_key}');
+                
+                // 找到对应的canvas元素
+                // Streamlit会为画布生成类似stCanvas-1这样的ID
+                const canvasElements = document.querySelectorAll('.stCanvas');
+                let targetCanvas = null;
+                
+                // 查找与当前key匹配的canvas
+                canvasElements.forEach(canvas => {{
+                    if (canvas.id.includes('{current_segment_key}')) {{
+                        targetCanvas = canvas;
+                    }}
+                }});
+                
+                if (targetCanvas && container && image) {{
+                    // 获取容器的位置信息
+                    const containerRect = container.getBoundingClientRect();
+                    
+                    // 设置画布的位置
+                    targetCanvas.style.position = 'absolute';
+                    targetCanvas.style.top = containerRect.top + 'px';
+                    targetCanvas.style.left = containerRect.left + 'px';
+                    targetCanvas.style.width = containerRect.width + 'px';
+                    targetCanvas.style.height = containerRect.height + 'px';
+                    
+                    // 将画布添加到容器中
+                    container.appendChild(targetCanvas);
+                    
+                    // 确保画布在最上层
+                    targetCanvas.style.zIndex = '100';
+                    
+                    // 调整画布内部的canvas元素大小
+                    const innerCanvas = targetCanvas.querySelector('canvas');
+                    if (innerCanvas) {{
+                        innerCanvas.style.width = '100%';
+                        innerCanvas.style.height = '100%';
+                    }}
+                }}
+            }});
+        </script>
+        """, unsafe_allow_html=True)
 
         if canvas_result.json_data is not None:
             st.session_state.canvas_boxes = [
