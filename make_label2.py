@@ -82,6 +82,12 @@ def get_full_pinyin(text):
     return ''.join(lazy_pinyin(text))
 
 
+# ======== 标签删除回调函数 =========
+def remove_label(label):
+    """从已选标签中删除指定标签"""
+    st.session_state.current_selected_labels.discard(label)
+
+
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
     st.session_state["dynamic_species_list"] = []
@@ -513,16 +519,22 @@ def annotation_labels_component(current_segment_key):
         st.markdown("### 已选标签")
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         
-        # 显示已选标签并提供删除功能
+        # 已选标签显示及删除功能（优化核心）
         if st.session_state.current_selected_labels:
-            for label in list(st.session_state.current_selected_labels):
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(label)
-                with col2:
-                    if st.button("删除", key=f"del_{label}_{current_segment_key}"):
-                        st.session_state.current_selected_labels.discard(label)
-                        st.rerun()  # 重新运行以更新UI
+            # 使用流式布局避免标签过多导致换行问题
+            cols = st.columns(len(st.session_state.current_selected_labels), gap="small")
+            for i, label in enumerate(st.session_state.current_selected_labels):
+                with cols[i]:
+                    # 使用on_click回调函数删除标签，替代st.rerun()
+                    st.button(
+                        f"❌ {label}",
+                        key=f"remove_{label}_{current_segment_key}",
+                        help=f"删除 {label}",
+                        on_click=remove_label,  # 点击时触发删除函数
+                        args=(label,)  # 传递要删除的标签
+                    )
+        else:
+            st.info("尚未选择标签")
 
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
