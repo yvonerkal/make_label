@@ -198,17 +198,17 @@ def spectral_annotation_component(y, sr, current_segment_key):
         # 3. 刷新按钮和操作按钮组（固定在频谱图下方）
         st.markdown("#### 操作")
         button_row = st.columns([1, 1, 2])  # 调整按钮宽度比例
-        # with button_row[0]:
-        #     refresh_clicked = st.button("刷新频谱图", key="refresh_spec")
         with button_row[0]:
-            save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
+            refresh_clicked = st.button("刷新频谱图", key="refresh_spec")
         with button_row[1]:
+            save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
+        with button_row[2]:
             skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
 
-        # # 处理刷新逻辑
-        # if refresh_clicked:
-        #     st.session_state.spec_image = None
-        #     st.rerun()
+        # 处理刷新逻辑
+        if refresh_clicked:
+            st.session_state.spec_image = None
+            st.rerun()
 
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
