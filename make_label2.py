@@ -138,44 +138,50 @@ def label_management_component():
 
 # ======== 频谱图画框+标签关联组件 =========
 def spectral_annotation_component(y, sr, current_segment_key):
-    # 生成频谱图数据
+    # 生成频谱图数据（时间、频率范围）
     D, times, frequencies = generate_spectrogram_data(y, sr)
 
-    # 缓存频谱图图像
+    # 缓存频谱图，避免重复生成
     if st.session_state.spec_image is None:
         spec_image = generate_spectrogram_image(D, times, frequencies)
         st.session_state.spec_image = spec_image
     else:
         spec_image = st.session_state.spec_image
 
-    # 更新频谱图参数（用于像素坐标 → 时间频率的转换）
+    # 测试显示 - 确认图像能正常生成
+    # st.image(spec_image, caption="测试频谱图显示")  # 这行可以注释掉，只是用于调试
+
+    # 将PIL Image转换为base64字符串
+    buffered = BytesIO()
+    spec_image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    
+    # 创建画布背景图像URL
+    background_image = f"data:image/png;base64,{img_str}"
+
     st.session_state.spec_params = {
         "times": times,
         "frequencies": frequencies,
         "img_size": (spec_image.width, spec_image.height)
     }
 
+    # 主区域布局
     col_main, col_labels = st.columns([3, 1])
 
     with col_main:
-        st.subheader("🎧 播放当前片段")
-        audio_bytes = BytesIO()
-        sf.write(audio_bytes, y, sr, format='WAV')
-        st.audio(audio_bytes, format="audio/wav", start_time=0)
-
-        st.markdown("#### 在频谱图上画框")
-        # 在spectral_annotation_component()中添加测试显示
-        st.image(spec_image, caption="测试频谱图显示")
+        st.subheader("🎧 频谱图画框标注（点击画布绘制矩形）")
+        
+        # 显示画布
         canvas_result = st_canvas(
-            fill_color="rgba(255, 165, 0, 0.4)",
+            fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
             stroke_color="#FF0000",
-            background_image=spec_image,
+            background_image=background_image,  # 使用base64编码的图像
             height=spec_image.height,
             width=spec_image.width,
             drawing_mode="rect",
-            update_streamlit=True,
             key=f"canvas_{current_segment_key}",
+            update_streamlit=True,
             display_toolbar=True
         )
 
