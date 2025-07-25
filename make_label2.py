@@ -1,6 +1,3 @@
-# 保存、下载数据的方式
-# 频谱图显示问题
-# 保存分割数据时，开始时间点往前，结束时间点往后取整
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import librosa
@@ -63,7 +60,6 @@ def generate_spectrogram_image(D, times, frequencies):
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    set_chinese_font()  # 添加中文字体设置
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('Waveform')
@@ -112,6 +108,29 @@ st.title("青蛙音频标注工具")
 # ======== 标签管理组件 =========
 def label_management_component():
     with st.sidebar:
+        st.markdown("### 🎵 音频上传")
+        uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True, key="audio_files")
+        
+        # 新增：显示已标注/未标注音频列表
+        if uploaded_files:
+            # 已标注音频
+            st.markdown("### ✅ 已标注音频")
+            processed = [f.name for f in uploaded_files if f.name in st.session_state.audio_state["processed_files"]]
+            if processed:
+                for name in processed:
+                    st.write(name)
+            else:
+                st.write("暂无已标注音频")
+            
+            # 未标注音频
+            st.markdown("### 🕓 未标注音频")
+            unprocessed = [f.name for f in uploaded_files if f.name not in st.session_state.audio_state["processed_files"]]
+            if unprocessed:
+                for name in unprocessed:
+                    st.write(name)
+            else:
+                st.write("所有音频已标注完成")
+
         st.markdown("### 🏷️ 标签设置")
         with st.form("label_form", clear_on_submit=True):
             label_file = st.file_uploader("上传标签文件（每行一个）", type=["txt"], key="label_file")
@@ -135,7 +154,22 @@ def label_management_component():
             ["分段标注", "频谱图画框"],
             index=0 if st.session_state.get("annotation_mode") == "分段标注" else 1
         )
-    return st.session_state["dynamic_species_list"]
+        
+        st.markdown("### 📥 下载结果")
+        output_dir = "annotated_audios"
+        csv_path = os.path.join(output_dir, "annotations.csv")
+        if os.path.exists(csv_path):
+            with open(csv_path, "rb") as f:
+                st.download_button("📄 下载标注结果", f, "annotations.csv", "text/csv; charset=utf-8")
+        if os.path.exists(output_dir):
+            with zipfile.ZipFile(zip_buf := BytesIO(), "w") as zf:
+                for f in os.listdir(output_dir):
+                    if f.endswith(".wav"):
+                        zf.write(os.path.join(output_dir, f), f)
+            zip_buf.seek(0)
+            st.download_button("🎵 下载音频片段", zip_buf, "annotated_segments.zip", "application/zip")
+
+    return uploaded_files
 
 
 # ======== 频谱图画框+标签关联组件 =========
@@ -291,7 +325,7 @@ def pixel_to_time_freq(pixel_coords):
 
 
 # ======== 音频处理主逻辑 =========
-def process_audio():
+def process_audio(uploaded_files):
     audio_state = st.session_state.audio_state
     output_dir = "annotated_audios"
     os.makedirs(output_dir, exist_ok=True)
@@ -313,23 +347,8 @@ def process_audio():
         st.error(f"CSV文件错误：{str(e)}")
         return
 
-    with st.sidebar:
-        st.markdown("### 🎵 音频上传")
-        uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True, key="audio_files")
-        st.markdown("### 📥 下载结果")
-        if os.path.exists(csv_path):
-            with open(csv_path, "rb") as f:
-                st.download_button("📄 下载标注结果", f, "annotations.csv", "text/csv; charset=utf-8")
-        if os.path.exists(output_dir):
-            with zipfile.ZipFile(zip_buf := BytesIO(), "w") as zf:
-                for f in os.listdir(output_dir):
-                    if f.endswith(".wav"):
-                        zf.write(os.path.join(output_dir, f), f)
-            zip_buf.seek(0)
-            st.download_button("🎵 下载音频片段", zip_buf, "annotated_segments.zip", "application/zip")
-
     if not uploaded_files:
-        st.info("请先上传音频文件")
+        st.info("请先在左侧上传音频文件")
         return
 
     # 获取未处理的音频
@@ -523,5 +542,5 @@ def annotation_labels_component(current_segment_key):
 
 
 if __name__ == "__main__":
-    label_management_component()
-    process_audio()
+    uploaded_files = label_management_component()
+    process_audio(uploaded_files)
