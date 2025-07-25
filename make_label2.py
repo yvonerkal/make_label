@@ -7,7 +7,6 @@ import librosa
 import librosa.display
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import font_manager
 import soundfile as sf
 import pandas as pd
 import os
@@ -18,66 +17,31 @@ from PIL import Image
 import uuid
 from pypinyin import lazy_pinyin
 import sys
-import logging
+import matplotlib
+matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+matplotlib.rcParams['axes.unicode_minus'] = False
 
-# 配置日志忽略字体警告
-logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
-
-# ======== 字体配置 =========
-def set_chinese_font():
-    """设置中文字体，避免警告"""
-    try:
-        # 尝试查找系统中可用的中文字体
-        font_path = None
-        possible_fonts = [
-            'SimHei.ttf',  # Windows
-            'msyh.ttf',    # Windows 微软雅黑
-            'Arial Unicode.ttf',  # Mac
-            'STHeiti Medium.ttc',  # Mac
-            'wqy-microhei.ttc',   # Linux 文泉驿
-            'NotoSansCJK-Regular.ttc'  # 思源黑体
-        ]
-        
-        for font in possible_fonts:
-            try:
-                path = font_manager.findfont(font)
-                if path:
-                    font_path = path
-                    break
-            except:
-                continue
-        
-        if font_path:
-            font_prop = font_manager.FontProperties(fname=font_path)
-            plt.rcParams['font.family'] = font_prop.get_name()
-        else:
-            # 如果找不到字体，使用默认的sans-serif并忽略中文
-            plt.rcParams['font.family'] = 'sans-serif'
-            plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
-        
-        plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-    except Exception as e:
-        print(f"字体设置失败: {e}")
-
-# 初始化字体
-set_chinese_font()
-
-sys.setrecursionlimit(10000)  # 增加递归深度限制
 
 # ======== 工具函数 =========
+
+
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
 
+
 def generate_spectrogram_data(y, sr):
     """生成频谱图数据及坐标轴范围（用于坐标转换）"""
+
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     times = librosa.times_like(D, sr=sr)  # 时间轴：0-5秒（5秒片段）
     frequencies = librosa.fft_frequencies(sr=sr)  # 频率轴：0到sr/2（奈奎斯特频率）
     return D, times, frequencies
 
+
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
+
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
@@ -98,8 +62,10 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.close()
     return img
 
+
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
+
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('Waveform')
@@ -110,11 +76,14 @@ def generate_waveform_image(y, sr):
     plt.close()
     return Image.open(buf)
 
+
 def get_pinyin_abbr(text):
     return ''.join([p[0] for p in lazy_pinyin(text) if p])
 
+
 def get_full_pinyin(text):
     return ''.join(lazy_pinyin(text))
+
 
 # ======== Session 状态初始化 =========
 if "dynamic_species_list" not in st.session_state:
@@ -141,6 +110,7 @@ if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
 st.set_page_config(layout="wide")
 st.title("青蛙音频标注工具")
 
+
 # ======== 标签管理组件 =========
 def label_management_component():
     with st.sidebar:
@@ -150,14 +120,16 @@ def label_management_component():
             submit_label = st.form_submit_button("加载标签")
             if submit_label and label_file:
                 try:
-                    species_list = [line.strip() for line in label_file.read().decode("utf-8").split("\n") if line.strip()]
+                    species_list = [line.strip() for line in label_file.read().decode("utf-8").split("\n") if
+                                    line.strip()]
                     st.session_state["dynamic_species_list"] = species_list
                     st.success(f"加载成功！共 {len(species_list)} 个标签")
                     st.rerun()
                 except Exception as e:
                     st.error(f"错误：{str(e)}")
         st.markdown("#### 当前标签预览")
-        st.write(st.session_state["dynamic_species_list"][:5] + (["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
+        st.write(st.session_state["dynamic_species_list"][:5] + (
+            ["..."] if len(st.session_state["dynamic_species_list"]) > 5 else []))
 
         # 标注模式选择
         st.session_state.annotation_mode = st.radio(
@@ -166,6 +138,7 @@ def label_management_component():
             index=0 if st.session_state.get("annotation_mode") == "分段标注" else 1
         )
     return st.session_state["dynamic_species_list"]
+
 
 # ======== 频谱图画框+标签关联组件 =========
 def spectral_annotation_component(y, sr, current_segment_key):
@@ -236,6 +209,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
         with button_row[1]:
             skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
 
+
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
         st.markdown("### 框标签管理")
@@ -264,7 +238,8 @@ def spectral_annotation_component(y, sr, current_segment_key):
                 if search_query:
                     q = search_query.lower()
                     for label in species_list:
-                        if q in label.lower() or q in get_pinyin_abbr(label).lower() or q in get_full_pinyin(label).lower():
+                        if q in label.lower() or q in get_pinyin_abbr(label).lower() or q in get_full_pinyin(
+                                label).lower():
                             filtered.append(label)
                 else:
                     filtered = species_list
@@ -282,6 +257,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
                     st.session_state.canvas_boxes = st.session_state.canvas_boxes  # 触发状态更新
 
     return save_clicked, skip_clicked
+
 
 # ======== 像素坐标→时间/频率转换函数 =========
 def pixel_to_time_freq(pixel_coords):
@@ -308,6 +284,7 @@ def pixel_to_time_freq(pixel_coords):
         "min": round(max(0, min_freq), 1),
         "max": round(min(frequencies[-1], max_freq), 1)
     }
+
 
 # ======== 音频处理主逻辑 =========
 def process_audio():
@@ -464,6 +441,7 @@ def process_audio():
 
     st.session_state.audio_state = audio_state
 
+
 # ======== 分段标注保存函数 =========
 def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, sr, output_dir):
     csv_path = os.path.join(output_dir, "annotations.csv")
@@ -491,11 +469,13 @@ def save_segment_annotation(audio_file, seg_idx, start_sec, end_sec, segment_y, 
 
     audio_state = st.session_state.audio_state
     audio_state["segment_info"][audio_file.name]["current_seg"] += 1
-    if audio_state["segment_info"][audio_file.name]["current_seg"] >= audio_state["segment_info"][audio_file.name]["total_seg"]:
+    if audio_state["segment_info"][audio_file.name]["current_seg"] >= audio_state["segment_info"][audio_file.name][
+        "total_seg"]:
         audio_state["processed_files"].add(audio_file.name)
     st.success(f"成功保存分段标注！")
     st.balloons()
     st.rerun()
+
 
 # ======== 原有分段标注标签组件 =========
 def annotation_labels_component(current_segment_key):
@@ -537,6 +517,7 @@ def annotation_labels_component(current_segment_key):
         st.info(f"已选数量：{len(st.session_state.current_selected_labels)}")
         col_save, col_skip = st.columns(2)
         return col_save, col_skip
+
 
 if __name__ == "__main__":
     label_management_component()
