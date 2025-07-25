@@ -38,20 +38,22 @@ def generate_spectrogram_data(y, sr):
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
-    img = librosa.display.specshow(
-        D,
-        sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
-        x_axis='time',
-        y_axis='log',
-    )
-    plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
-    plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
+    
+    # 使用imshow替代specshow以获得更可靠的结果
+    plt.imshow(D, 
+              aspect='auto', 
+              origin='lower',
+              extent=[times[0], times[-1], frequencies[0], frequencies[-1]],
+              cmap='viridis')
+    
     plt.colorbar(format='%+2.0f dB')
     plt.title('频谱图（可画框标注）')
-    plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
-
+    plt.xlabel('时间 (秒)')
+    plt.ylabel('频率 (Hz)')
+    plt.yscale('log')  # 对数y轴
+    
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
+    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.1)  # 保留少量边距
     buf.seek(0)
     img = Image.open(buf)
     plt.close()
