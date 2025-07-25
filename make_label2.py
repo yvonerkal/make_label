@@ -37,7 +37,7 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-    plt.figure(figsize=(8, 3), dpi=100)  # 固定尺寸，便于后续坐标转换
+    plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
         sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
@@ -47,19 +47,20 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
     plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
     plt.colorbar(format='%+2.0f dB')
-    # plt.title('频谱图（可画框标注）')
+    plt.title('频谱图（可画框标注）')
     plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
     buf.seek(0)
+    img = Image.open(buf)
     plt.close()
-    return Image.open(buf)
+    return img
 
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    plt.figure(figsize=(8, 3), dpi=100)
+    plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('波形图')
     plt.tight_layout()
@@ -144,7 +145,7 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.session_state.spec_image = spec_image
     else:
         spec_image = st.session_state.spec_image
-    
+
     st.session_state.spec_params = {
         "times": times,  # 0-5秒的时间轴
         "frequencies": frequencies,  # 频率轴（0到sr/2）
@@ -162,10 +163,9 @@ def spectral_annotation_component(y, sr, current_segment_key):
         audio_bytes = BytesIO()
         sf.write(audio_bytes, y, sr, format='WAV')
         st.audio(audio_bytes, format="audio/wav", start_time=0)
-            
+
         # 2. 频谱图画布区域
         st.markdown("#### 频谱图（可绘制矩形框）")
-       
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
@@ -198,17 +198,17 @@ def spectral_annotation_component(y, sr, current_segment_key):
         # 3. 刷新按钮和操作按钮组（固定在频谱图下方）
         st.markdown("#### 操作")
         button_row = st.columns([1, 1, 2])  # 调整按钮宽度比例
-        # with button_row[0]:
-        #     refresh_clicked = st.button("刷新频谱图", key="refresh_spec")
         with button_row[0]:
-            save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
+            refresh_clicked = st.button("刷新频谱图", key="refresh_spec")
         with button_row[1]:
+            save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
+        with button_row[2]:
             skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
 
         # 处理刷新逻辑
-        # if refresh_clicked:
-        #     st.session_state.spec_image = None
-        #     st.rerun()
+        if refresh_clicked:
+            st.session_state.spec_image = None
+            st.rerun()
 
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
