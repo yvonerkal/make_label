@@ -37,7 +37,7 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-    plt.figure(figsize=(5, 3), dpi=100)  # 固定尺寸，便于后续坐标转换
+    plt.figure(figsize=(8, 3), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
         sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
@@ -54,13 +54,12 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
     buf.seek(0)
     plt.close()
-    img = Image.open(buf)
-    return img
+    return Image.open(buf)
 
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
-    plt.figure(figsize=(5, 3), dpi=100)
+    plt.figure(figsize=(8, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
     plt.title('波形图')
     plt.tight_layout()
@@ -167,6 +166,8 @@ def spectral_annotation_component(y, sr, current_segment_key):
         # 2. 频谱图画布区域
         st.markdown("#### 频谱图（可绘制矩形框）")
         canvas_result = st_canvas(
+            # 在spectral_annotation_component()中添加测试显示
+            st.image(spec_image, caption="测试频谱图显示")
             fill_color="rgba(255, 165, 0, 0.3)",  # 半透明橙色
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
