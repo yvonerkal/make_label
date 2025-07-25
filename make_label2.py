@@ -37,31 +37,25 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=100)  # 固定尺寸
+    plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
-        sr=frequencies[-1] * 2,
+        sr=frequencies[-1] * 2,  # 采样率=2*最高频率（奈奎斯特准则）
         x_axis='time',
         y_axis='log',
-        ax=ax
     )
-    ax.set_xlim(times[0], times[-1])
-    ax.set_ylim(frequencies[0], frequencies[-1])
-    ax.set_title('频谱图（可画框标注）')
-    fig.colorbar(img, ax=ax, format='%+2.0f dB')
-    fig.tight_layout()
+    plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
+    plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
+    plt.colorbar(format='%+2.0f dB')
+    plt.title('频谱图（可画框标注）')
+    plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
 
     buf = io.BytesIO()
-    # 👉 改为白底不透明背景（加 facecolor='white'）
-    fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.1, facecolor='white')
+    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)  # 无额外边距
     buf.seek(0)
-    plt.close(fig)
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-
-
-    return Image.open(buf)
-
+    img = Image.open(buf)
+    plt.close()
+    return img
 
 
 @st.cache_data(show_spinner=False)
@@ -142,129 +136,104 @@ def label_management_component():
 
 # ======== 频谱图画框+标签关联组件 =========
 def spectral_annotation_component(y, sr, current_segment_key):
-    # 生成频谱图数据（时间、频率范围）
+    # 生成频谱图数据
     D, times, frequencies = generate_spectrogram_data(y, sr)
 
-    # 缓存频谱图，避免重复生成
+    # 缓存频谱图图像
     if st.session_state.spec_image is None:
         spec_image = generate_spectrogram_image(D, times, frequencies)
         st.session_state.spec_image = spec_image
     else:
         spec_image = st.session_state.spec_image
 
+    # 更新频谱图参数（用于像素坐标 → 时间频率的转换）
     st.session_state.spec_params = {
-        "times": times,  # 0-5秒的时间轴
-        "frequencies": frequencies,  # 频率轴（0到sr/2）
-        "img_size": (spec_image.width, spec_image.height)  # 频谱图尺寸（像素）
+        "times": times,
+        "frequencies": frequencies,
+        "img_size": (spec_image.width, spec_image.height)
     }
 
-    # 主区域布局：左侧为操作区（固定结构），右侧为标签区（可滚动）
     col_main, col_labels = st.columns([3, 1])
 
     with col_main:
-        st.subheader("🎧 频谱图画框标注（点击画布绘制矩形）")
-        
-
-        # 1. 音频播放移到频谱图上方
-        st.markdown("#### 音频播放")
+        st.subheader("🎧 播放当前片段")
         audio_bytes = BytesIO()
         sf.write(audio_bytes, y, sr, format='WAV')
         st.audio(audio_bytes, format="audio/wav", start_time=0)
 
-        # 2. 频谱图画布区域
-        # DEBUG: 临时显示频谱图
-        st.image(spec_image, caption="频谱图 DEBUG 显示", use_column_width=True)
-        st.markdown("#### 频谱图（可绘制矩形框）")
+        st.markdown("#### 在频谱图上画框")
         canvas_result = st_canvas(
-            fill_color="rgba(255, 0, 0, 0.3)",  # 半透明橙色
+            fill_color="rgba(255, 165, 0, 0.4)",
             stroke_width=2,
-            stroke_color="#FF0000",  # 红色边框
-            background_color="#eee",
+            stroke_color="#FF0000",
             background_image=spec_image,
-            height=spec_image.height,  # 画布高度=频谱图高度
-            width=spec_image.width,  # 画布宽度=频谱图宽度
-            drawing_mode="rect",  # 仅允许画矩形
+            height=spec_image.height,
+            width=spec_image.width,
+            drawing_mode="rect",
+            update_streamlit=True,
             key=f"canvas_{current_segment_key}",
-            update_streamlit=True,  # 启用自动更新
-            display_toolbar=True  # 显示工具栏
+            display_toolbar=True
         )
 
-        # 处理画布上的画框
-        if canvas_result.json_data is not None:
-            st.session_state.canvas_boxes = [
-                {
-                    "pixel": {  # 像素坐标（画布上的位置）
-                        "left": obj["left"],
-                        "top": obj["top"],
-                        "width": obj["width"],
-                        "height": obj["height"]
-                    },
-                    "label": None  # 初始无标签
-                }
-                for obj in canvas_result.json_data["objects"]
-                if obj["type"] == "rect"
-            ]
+        if canvas_result.json_data and "objects" in canvas_result.json_data:
+            new_boxes = []
+            for obj in canvas_result.json_data["objects"]:
+                if obj["type"] == "rect":
+                    new_boxes.append({
+                        "pixel": {
+                            "left": obj["left"],
+                            "top": obj["top"],
+                            "width": obj["width"],
+                            "height": obj["height"]
+                        },
+                        "label": None
+                    })
+            st.session_state.canvas_boxes = new_boxes
 
-        # 3. 刷新按钮和操作按钮组（固定在频谱图下方）
-        st.markdown("#### 操作")
-        button_row = st.columns([1, 1, 2])  # 调整按钮宽度比例
-        with button_row[0]:
-            refresh_clicked = st.button("刷新频谱图", key="refresh_spec")
-        with button_row[1]:
-            save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
-        with button_row[2]:
-            skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
+        # 操作按钮
+        col1, col2, col3 = st.columns([1, 1, 2])
+        refresh_clicked = col1.button("🔄 刷新频谱图", key="refresh_spec")
+        save_clicked = col2.button("💾 保存画框标注", key=f"save_boxes_{current_segment_key}")
+        skip_clicked = col3.button("➡️ 跳过本段", key=f"skip_box_{current_segment_key}")
 
-        # 处理刷新逻辑
         if refresh_clicked:
             st.session_state.spec_image = None
             st.rerun()
 
-    # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
         st.markdown("### 框标签管理")
         species_list = st.session_state["dynamic_species_list"]
         if not species_list:
-            st.warning("请先在左侧上传标签文件")
+            st.warning("请先上传标签文件")
             return save_clicked, skip_clicked
 
-        # 显示所有画框并关联标签
         if st.session_state.canvas_boxes:
             for i, box in enumerate(st.session_state.canvas_boxes):
-                st.markdown(f"#### 框 {i + 1}")
-
-                # 转换像素坐标为实际时间和频率
+                st.markdown(f"#### 📦 框 {i + 1}")
                 time_freq = pixel_to_time_freq(box["pixel"])
-                st.write(f"时间范围：{time_freq['start']:.2f} - {time_freq['end']:.2f} 秒")
-                st.write(f"频率范围：{time_freq['min']:.0f} - {time_freq['max']:.0f} Hz")
+                st.write(f"⏱️ 时间：{time_freq['start']}s - {time_freq['end']}s")
+                st.write(f"🎵 频率：{time_freq['min']}Hz - {time_freq['max']}Hz")
 
-                # 为当前框选择标签
                 search_query = st.text_input(
-                    "搜索标签", "", key=f"box_search_{i}",
-                    placeholder="输入中文/拼音首字母"
+                    "搜索标签", "", key=f"search_label_{i}", placeholder="支持拼音/拼音首字母/中文"
                 )
-                # 过滤标签（支持中文、拼音首字母、全拼）
+
                 filtered = []
                 if search_query:
                     q = search_query.lower()
                     for label in species_list:
-                        if q in label.lower() or q in get_pinyin_abbr(label).lower() or q in get_full_pinyin(
-                                label).lower():
+                        if q in label.lower() or q in get_pinyin_abbr(label) or q in get_full_pinyin(label):
                             filtered.append(label)
                 else:
                     filtered = species_list
 
-                # 选择标签并保存
                 selected_label = st.selectbox(
-                    f"选择框 {i + 1} 的标签",
+                    f"选择标签",
                     filtered,
                     index=filtered.index(box["label"]) if box["label"] in filtered else 0,
-                    key=f"box_label_{i}"
+                    key=f"selectbox_label_{i}"
                 )
-                # 更新当前框的标签
-                if selected_label != box["label"]:
-                    st.session_state.canvas_boxes[i]["label"] = selected_label
-                    st.session_state.canvas_boxes = st.session_state.canvas_boxes  # 触发状态更新
+                box["label"] = selected_label
 
     return save_clicked, skip_clicked
 
