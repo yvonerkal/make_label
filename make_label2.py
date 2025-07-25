@@ -423,7 +423,7 @@ def process_audio():
                     st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_column_width=True)
                 with col2:
                     st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
-                             use_container_width=True)
+                             use_column_width=True)
 
             with col_labels:
                 col_save, col_skip = annotation_labels_component(current_segment_key)
