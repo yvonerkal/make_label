@@ -283,7 +283,12 @@ def process_audio():
                 "filename", "segment_index", "box_id",
                 "start_time", "end_time", "min_freq", "max_freq", "label"
             ]).to_csv(csv_path, index=False, encoding='utf_8_sig')  # 修改点1：添加编码
-        df_old = pd.read_csv(csv_path)
+        # 修改读取CSV部分
+        try:
+            df_old = pd.read_csv(csv_path, encoding='utf_8_sig')  # 添加编码参数
+        except Exception as e:
+            st.error(f"CSV文件错误：{str(e)}")
+            return
     except Exception as e:
         st.error(f"CSV文件错误：{str(e)}")
         return
@@ -294,7 +299,7 @@ def process_audio():
         st.markdown("### 📥 下载结果")
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
-                st.download_button("📄 下载标注结果", f, "annotations.csv", "text/csv")
+                st.download_button("📄 下载标注结果", f, "annotations.csv", "text/csv"; charset=utf-8")
         if os.path.exists(output_dir):
             with zipfile.ZipFile(zip_buf := BytesIO(), "w") as zf:
                 for f in os.listdir(output_dir):
