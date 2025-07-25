@@ -420,7 +420,7 @@ def process_audio():
                 st.audio(audio_bytes, format="audio/wav")
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_container_width=True)
+                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_column_width=True)
                 with col2:
                     st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
                              use_container_width=True)
