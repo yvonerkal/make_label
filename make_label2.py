@@ -18,10 +18,10 @@ import uuid
 from pypinyin import lazy_pinyin
 import sys
 
-sys.setrecursionlimit(10000)  # 增加递归深度限制
-
 
 # ======== 工具函数 =========
+
+
 @st.cache_data(show_spinner=False)
 def load_audio(file):
     return librosa.load(file, sr=None)
@@ -29,6 +29,7 @@ def load_audio(file):
 
 def generate_spectrogram_data(y, sr):
     """生成频谱图数据及坐标轴范围（用于坐标转换）"""
+
     D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     times = librosa.times_like(D, sr=sr)  # 时间轴：0-5秒（5秒片段）
     frequencies = librosa.fft_frequencies(sr=sr)  # 频率轴：0到sr/2（奈奎斯特频率）
@@ -37,6 +38,7 @@ def generate_spectrogram_data(y, sr):
 
 def generate_spectrogram_image(D, times, frequencies):
     """生成带坐标的频谱图（确保x/y轴范围明确）"""
+
     plt.figure(figsize=(12, 6), dpi=100)  # 固定尺寸，便于后续坐标转换
     img = librosa.display.specshow(
         D,
@@ -47,7 +49,7 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.xlim(times[0], times[-1])  # x轴固定为0-5秒
     plt.ylim(frequencies[0], frequencies[-1])  # y轴固定为实际频率范围
     plt.colorbar(format='%+2.0f dB')
-    plt.title('频谱图（可画框标注）')
+    plt.title('Spectrogram')
     plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
 
     buf = io.BytesIO()
@@ -60,9 +62,10 @@ def generate_spectrogram_image(D, times, frequencies):
 
 @st.cache_data(show_spinner=False)
 def generate_waveform_image(y, sr):
+    set_chinese_font()  # 添加中文字体设置
     plt.figure(figsize=(12, 3), dpi=100)
     librosa.display.waveshow(y, sr=sr)
-    plt.title('波形图')
+    plt.title('Waveform')
     plt.tight_layout()
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight')
@@ -102,7 +105,7 @@ if "spec_image" not in st.session_state:  # 缓存频谱图以避免重复生成
     st.session_state.spec_image = None
 
 st.set_page_config(layout="wide")
-st.title("🐸 青蛙音频标注工具")
+st.title("青蛙音频标注工具")
 
 
 # ======== 标签管理组件 =========
@@ -199,16 +202,10 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.markdown("#### 操作")
         button_row = st.columns([1, 1, 2])  # 调整按钮宽度比例
         with button_row[0]:
-            refresh_clicked = st.button("刷新频谱图", key="refresh_spec")
-        with button_row[1]:
             save_clicked = st.button("保存画框标注", key=f"save_boxes_{current_segment_key}")
-        with button_row[2]:
+        with button_row[1]:
             skip_clicked = st.button("跳过本段", key=f"skip_box_{current_segment_key}")
 
-        # 处理刷新逻辑
-        if refresh_clicked:
-            st.session_state.spec_image = None
-            st.rerun()
 
     # 右侧标签管理区域（可滚动，不影响左侧按钮位置）
     with col_labels:
@@ -420,10 +417,11 @@ def process_audio():
                 st.audio(audio_bytes, format="audio/wav")
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.image(generate_waveform_image(segment_y, sr), caption="波形图", use_container_width=True)
+                    st.image(generate_waveform_image(segment_y, sr), caption="Waveform", use_column_width=True)
                 with col2:
-                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)), caption="频谱图",
-                             use_container_width=True)
+                    st.image(generate_spectrogram_image(*generate_spectrogram_data(segment_y, sr)),
+                             caption="Spectrogram",
+                             use_column_width=True)
 
             with col_labels:
                 col_save, col_skip = annotation_labels_component(current_segment_key)
