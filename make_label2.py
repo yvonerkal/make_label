@@ -47,14 +47,19 @@ def generate_spectrogram_image(D, times, frequencies):
     plt.title('频谱图（可画框标注）')
     plt.tight_layout(pad=0)  # 去除边距，避免坐标偏移
 
+    # 强制图形渲染
+    fig.canvas.draw()
+    
+    # 获取渲染后的图像尺寸
+    renderer = fig.canvas.get_renderer()
+    bbox = img.get_window_extent(renderer)
+    img_width, img_height = int(bbox.width), int(bbox.height)
+    
     # 保存图像到内存
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     buf.seek(0)
     img = Image.open(buf)
-    
-    # 记录图像尺寸
-    img_width, img_height = img.size
     
     plt.close(fig)  # 关闭图形，释放资源
     return img, img_width, img_height
@@ -149,10 +154,26 @@ def spectral_annotation_component(y, sr, current_segment_key):
     if st.session_state.spec_image is None and not st.session_state.is_generating_spec:
         st.session_state.is_generating_spec = True
         try:
+            # 尝试生成频谱图
             spec_image, img_width, img_height = generate_spectrogram_image(D, times, frequencies)
+            
+            # 验证图像尺寸是否有效
+            if img_width <= 0 or img_height <= 0:
+                st.error("生成的频谱图尺寸无效，尝试使用备用方法...")
+                # 备用方法：使用matplotlib默认的图像尺寸
+                img_width = 1200  # 12英寸 * 100 dpi
+                img_height = 600  # 6英寸 * 100 dpi
+                st.warning(f"使用默认尺寸: {img_width}x{img_height} 像素")
+            
             st.session_state.spec_image = spec_image
             st.session_state.spec_width = img_width
             st.session_state.spec_height = img_height
+        except Exception as e:
+            st.error(f"生成频谱图时出错: {str(e)}")
+            st.warning("尝试使用默认尺寸创建画布")
+            # 设置默认尺寸
+            st.session_state.spec_width = 1200
+            st.session_state.spec_height = 600
         finally:
             st.session_state.is_generating_spec = False
 
@@ -161,12 +182,17 @@ def spectral_annotation_component(y, sr, current_segment_key):
         st.info("正在生成频谱图，请稍候...")
         return False, False
 
-    # 确保图像尺寸有效
+    # 获取图像尺寸
     img_width = st.session_state.spec_width
     img_height = st.session_state.spec_height
+    
+    # 确保图像尺寸有效
     if img_width <= 0 or img_height <= 0:
-        st.error("频谱图尺寸无效，请刷新页面重试")
-        return False, False
+        st.error("频谱图尺寸无效，使用默认值")
+        img_width = 1200
+        img_height = 600
+        st.session_state.spec_width = img_width
+        st.session_state.spec_height = img_height
 
     st.session_state.spec_params = {
         "times": times,  # 0-5秒的时间轴
