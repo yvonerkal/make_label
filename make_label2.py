@@ -171,8 +171,8 @@ def spectral_annotation_component(y, sr, current_segment_key):
             stroke_width=2,
             stroke_color="#FF0000",  # 红色边框
             background_image=spec_image,
-            height=spec_image.height,  # 画布高度=频谱图高度
-            width=spec_image.width,  # 画布宽度=频谱图宽度
+            height=300,  # 画布高度=频谱图高度
+            width=900,  # 画布宽度=频谱图宽度
             drawing_mode="rect",  # 仅允许画矩形
             key=f"canvas_{current_segment_key}",
             update_streamlit=True,  # 启用自动更新
