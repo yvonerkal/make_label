@@ -317,6 +317,27 @@ def process_audio():
     with st.sidebar:
         st.markdown("### 🎵 音频上传")
         uploaded_files = st.file_uploader("上传音频文件 (.wav)", type=["wav"], accept_multiple_files=True, key="audio_files")
+            # === 显示标注状态 ===
+        if uploaded_files:
+            processed_set = st.session_state.audio_state.get("processed_files", set())
+            all_files = [f.name for f in uploaded_files]
+            unprocessed_files = [f for f in all_files if f not in processed_set]
+            processed_files = [f for f in all_files if f in processed_set]
+    
+            st.markdown("### ✅ 已标注音频")
+            if processed_files:
+                for f in processed_files:
+                    st.markdown(f"- {f}")
+            else:
+                st.info("暂无已标注音频")
+    
+            st.markdown("### ⏳ 未标注音频")
+            if unprocessed_files:
+                for f in unprocessed_files:
+                    st.markdown(f"- {f}")
+            else:
+                st.success("全部标注完成！")
+
         st.markdown("### 📥 下载结果")
         if os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
